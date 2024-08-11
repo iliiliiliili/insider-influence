@@ -11,10 +11,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
-    def __init__(self, patience=7, verbose=False, delta=0,
-                 path='checkpoint.pt', trace_func=print):
+
+    def __init__(
+        self, patience=7, verbose=False, delta=0, path="checkpoint.pt", trace_func=print
+    ):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
@@ -45,15 +48,17 @@ class EarlyStopping:
         if self.best_score is None:
             self.best_score = score
             if self.verbose:
-                self.trace_func(f'First loss found')
+                self.trace_func(f"First loss found")
             self.save_checkpoint(val_loss, model)
         elif score < self.best_score + self.delta:
             self.counter += 1
             if self.verbose:
-                self.trace_func(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+                self.trace_func(
+                    f"EarlyStopping counter: {self.counter} out of {self.patience}"
+                )
             if self.counter >= self.patience:
                 if self.verbose:
-                    self.trace_func(f'Will stop early')
+                    self.trace_func(f"Will stop early")
                 self.early_stop = True
         else:
             self.best_score = score
@@ -61,8 +66,10 @@ class EarlyStopping:
             self.counter = 0
 
     def save_checkpoint(self, val_loss, model):
-        '''Saves model when validation loss decrease.'''
+        """Saves model when validation loss decrease."""
         if self.verbose:
-            self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+            self.trace_func(
+                f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ..."
+            )
         torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss

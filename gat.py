@@ -4,30 +4,30 @@
 # Author: Jiezhong Qiu
 # Create Time: 2017/12/18 21:40
 
-
-# from __future__ import absolute_import
-# from __future__ import unicode_literals
-# from __future__ import division
-# from __future__ import print_function
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from public_gat_layers import BatchMultiHeadGraphAttention
+from gat_layers import BatchMultiHeadGraphAttention
 
 
 class BatchGAT(nn.Module):
-    def __init__(self,  # pretrained_emb,
-                 n_units, n_heads,
-                 dropout=0.1, attn_dropout=0.0, fine_tune=False,
-                 instance_normalization=True):
+    def __init__(
+        self,  # pretrained_emb,
+        n_units,
+        n_heads,
+        dropout=0.1,
+        attn_dropout=0.0,
+        fine_tune=False,
+        instance_normalization=True,
+    ):
         super(BatchGAT, self).__init__()
         self.n_layer = len(n_units) - 1
         self.dropout = dropout
         self.inst_norm = instance_normalization
         if self.inst_norm:
-            self.norm = nn.InstanceNorm1d(64,  # pretrained_emb.size(1),
-                                          momentum=0.0, affine=True)
+            self.norm = nn.InstanceNorm1d(
+                64, momentum=0.0, affine=True  # pretrained_emb.size(1),
+            )
 
         # https://discuss.pytorch.org/t/can-we-use-pre-trained-word-embeddings-for-weight-initialization-in-nn-embedding/1222/2
         # For the public data this is not necessary to train, but since our
@@ -42,12 +42,19 @@ class BatchGAT(nn.Module):
             # consider multi head from last layer
             f_in = n_units[i] * n_heads[i - 1] if i else n_units[i]
             self.layer_stack.append(
-                BatchMultiHeadGraphAttention(n_heads[i], f_in=f_in,
-                                             f_out=n_units[i + 1], attn_dropout=attn_dropout)
+                BatchMultiHeadGraphAttention(
+                    n_heads[i],
+                    f_in=f_in,
+                    f_out=n_units[i + 1],
+                    attn_dropout=attn_dropout,
+                )
             )
 
     def forward(self, data, normalized_embedding=None):
-        adj, x,  = data
+        (
+            adj,
+            x,
+        ) = data
         emb = normalized_embedding.float()
         x = torch.cat((x, emb), dim=2)
         bs, n = adj.size()[:2]

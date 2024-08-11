@@ -26,7 +26,7 @@ class BatchGraphConvolution(Module):
             self.bias = Parameter(torch.Tensor(out_features))
             init.constant_(self.bias, 0)
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
         init.xavier_uniform_(self.weight)
 
     def forward(self, x, lap):

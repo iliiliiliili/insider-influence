@@ -33,7 +33,7 @@ class MultiHeadGraphAttention(nn.Module):
             self.bias = Parameter(torch.Tensor(f_out))
             init.constant_(self.bias, 0)
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
 
         init.xavier_uniform_(self.w)
         init.xavier_uniform_(self.a_src)
@@ -44,8 +44,9 @@ class MultiHeadGraphAttention(nn.Module):
         h_prime = torch.matmul(h.unsqueeze(0), self.w)  # n_head x n x f_out
         attn_src = torch.bmm(h_prime, self.a_src)  # n_head x n x 1
         attn_dst = torch.bmm(h_prime, self.a_dst)  # n_head x n x 1
-        attn = attn_src.expand(-1, -1, n) + \
-            attn_dst.expand(-1, -1, n).permute(0, 2, 1)  # n_head x n x n
+        attn = attn_src.expand(-1, -1, n) + attn_dst.expand(-1, -1, n).permute(
+            0, 2, 1
+        )  # n_head x n x n
 
         attn = self.leaky_relu(attn)
         attn.data.masked_fill_(1 - adj, float("-inf"))
@@ -74,7 +75,7 @@ class BatchMultiHeadGraphAttention(nn.Module):
             self.bias = Parameter(torch.Tensor(f_out))
             init.constant_(self.bias, 0)
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
 
         init.xavier_uniform_(self.w)
         init.xavier_uniform_(self.a_src)
@@ -85,8 +86,9 @@ class BatchMultiHeadGraphAttention(nn.Module):
         h_prime = torch.matmul(h.unsqueeze(1), self.w)  # bs x n_head x n x f_out
         attn_src = torch.matmul(torch.tanh(h_prime), self.a_src)  # bs x n_head x n x 1
         attn_dst = torch.matmul(torch.tanh(h_prime), self.a_dst)  # bs x n_head x n x 1
-        attn = attn_src.expand(-1, -1, -1, n) + \
-            attn_dst.expand(-1, -1, -1, n).permute(0, 1, 3, 2) # bs x n_head x n x n
+        attn = attn_src.expand(-1, -1, -1, n) + attn_dst.expand(-1, -1, -1, n).permute(
+            0, 1, 3, 2
+        )  # bs x n_head x n x n
 
         attn = self.leaky_relu(attn)
         mask = 1 - adj.unsqueeze(1)  # bs x 1 x n x n

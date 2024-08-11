@@ -4,24 +4,24 @@
 # Author: Jiezhong Qiu
 # Create Time: 2017/12/17 14:11
 
-
-# from __future__ import absolute_import
-# from __future__ import unicode_literals
-# from __future__ import division
-# from __future__ import print_function
-
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-from public_gcn_layers import BatchGraphConvolution
+from gcn_layers import BatchGraphConvolution
 from torch.nn.parameter import Parameter
 import torch.nn.init as init
 
 
 class BatchGCN(nn.Module):
-    def __init__(self, n_units, dropout,  # pretrained_emb,
-                 n_neighbors, fine_tune=False,
-                 instance_normalization=True, last_conversion=False):
+    def __init__(
+        self,
+        n_units,
+        dropout,  # pretrained_emb,
+        n_neighbors,
+        fine_tune=False,
+        instance_normalization=True,
+        last_conversion=False,
+    ):
         super(BatchGCN, self).__init__()
         self.num_layer = len(n_units) - 1
         self.last_conversion = last_conversion
@@ -29,8 +29,9 @@ class BatchGCN(nn.Module):
         self.dropout = dropout
         self.inst_norm = instance_normalization
         if self.inst_norm:
-            self.norm = nn.InstanceNorm1d(64,  # pretrained_emb.size(1),
-                                          momentum=0.0, affine=True)
+            self.norm = nn.InstanceNorm1d(
+                64, momentum=0.0, affine=True  # pretrained_emb.size(1),
+            )
 
         # https://discuss.pytorch.org/t/can-we-use-pre-trained-word-embeddings-for-weight-initialization-in-nn-embedding/1222/2
         # For the public data this is not necessary to train, but since our
@@ -43,12 +44,9 @@ class BatchGCN(nn.Module):
         self.layer_stack = nn.ModuleList()
 
         for i in range(self.num_layer):
-            self.layer_stack.append(
-                BatchGraphConvolution(n_units[i], n_units[i + 1])
-            )
+            self.layer_stack.append(BatchGraphConvolution(n_units[i], n_units[i + 1]))
         if self.last_conversion:
-            self.last_weights = Parameter(torch.Tensor(
-                self.n_labels, n_neighbors))
+            self.last_weights = Parameter(torch.Tensor(self.n_labels, n_neighbors))
             init.xavier_uniform_(self.last_weights)
 
     def forward(self, data, normalized_embedding=None):
@@ -62,7 +60,6 @@ class BatchGCN(nn.Module):
                 x = F.elu(x)
                 x = F.dropout(x, self.dropout, training=self.training)
         if self.last_conversion:
-            expand_weight3 = self.last_weights.expand(
-                x.shape[0], -1, -1)
+            expand_weight3 = self.last_weights.expand(x.shape[0], -1, -1)
             x = torch.bmm(expand_weight3, x)
         return F.log_softmax(x, dim=-1)[:, -1, :]
