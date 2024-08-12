@@ -6,8 +6,6 @@ Created on Tue Jul 12 16:06:30 2022
 @author: baltakys
 """
 
-import copy
-import torch.nn as nn
 import json
 import os
 from typing import List, Tuple
@@ -22,6 +20,7 @@ from networks.gat import BatchGAT
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 import torch.nn.functional as F
+from pathlib import Path
 from sklearn.metrics import (
     accuracy_score,
     precision_recall_fscore_support,
@@ -295,7 +294,7 @@ def get_parameters(horizon: str, frequency: str, direction: str, architecture: s
     return args
 
 
-def main(mode="train", device="cuda:0"):
+def main(mode="train", device="cuda:0", save_folder="results"):
 
     train = (mode == "train") or (mode == True)
 
@@ -518,6 +517,30 @@ def main(mode="train", device="cuda:0"):
         table_10.round(2).unstack(1).stack(0).sort_index(ascending=[False, False])
     )
     print("TABLE 10:\n", table_10)
+
+    results = {
+        "table_5": table_5,
+        "table_8": table_8,
+        "table_9": table_9,
+        "table_10": table_10,
+    }
+
+    if save_folder is not None:
+        save_folder = Path(save_folder)
+        os.makedirs(save_folder, exist_ok=True)
+
+        with open(save_folder / ".gitignore", "w") as f:
+            f.write("*\n")
+        
+        for name, result in results.items():
+            result.to_csv(save_folder / (name + ".csv"))
+    
+    for name, result in results.items():
+        expected_result = pd.read_csv(Path("expected_results") / (name + ".csv"), header=[0, 1, 2], index_col=[0, 1], skipinitialspace=True)
+
+        print()
+
+    return results
 
 
 if __name__ == "__main__":

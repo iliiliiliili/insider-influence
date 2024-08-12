@@ -1,0 +1,7 @@
+,,Lead-lag,Lead-lag,Lead-lag,Lead-lag,Simultaneous,Simultaneous,Simultaneous,Simultaneous
+,,D,D,W,W,D,D,W,W
+,,Buy,Sell,Buy,Sell,Buy,Sell,Buy,Sell
+gat,F1-score,0.61,0.62,0.63,0.6,0.77,0.78,0.66,0.72
+gat,AUC,0.78,0.77,0.83,0.79,0.91,0.9,0.86,0.89
+gcn,F1-score,0.57,0.58,0.57,0.58,0.74,0.75,0.62,0.7
+gcn,AUC,0.76,0.76,0.79,0.77,0.91,0.89,0.83,0.87
