@@ -78,7 +78,7 @@ def train_model(
             batch_size = data[0].size(0)
 
             target = target.to(device)
-            data = [tensor.cuda(device) for tensor in data]
+            data = [tensor.to(device) for tensor in data]
 
             optimizer.zero_grad()
             output = model(data[:2], data[-1])
@@ -294,7 +294,7 @@ def get_parameters(horizon: str, frequency: str, direction: str, architecture: s
     return args
 
 
-def main(mode="train", device="cuda:0", save_folder="results"):
+def main(mode="train", device="cuda:0", save_folder="results", return_results=False):
 
     train = (mode == "train") or (mode == True)
 
@@ -355,13 +355,15 @@ def main(mode="train", device="cuda:0", save_folder="results"):
         else:
             raise NotImplementedError
 
+        model.to(device)
+
         if train:
             # dataiter = iter(data_loader['train'])
             # data, target = next(dataiter)
             result_dir = (
                 "./models/" f"new_{architecture}_{horizon}_{frequency}_{direction}/"
             )
-            trained_model = train_model(
+            train_model(
                 model=model,
                 dataloader=data_loader,
                 args=args,
@@ -378,7 +380,6 @@ def main(mode="train", device="cuda:0", save_folder="results"):
             )
             model.load_state_dict(torch.load(path_model_checkpoint))
 
-        model.to(device)
         model.eval()
 
         test_loader = data_loader["test"]
@@ -535,12 +536,8 @@ def main(mode="train", device="cuda:0", save_folder="results"):
         for name, result in results.items():
             result.to_csv(save_folder / (name + ".csv"))
     
-    for name, result in results.items():
-        expected_result = pd.read_csv(Path("expected_results") / (name + ".csv"), header=[0, 1, 2], index_col=[0, 1], skipinitialspace=True)
-
-        print()
-
-    return results
+    if return_results:
+        return results
 
 
 if __name__ == "__main__":

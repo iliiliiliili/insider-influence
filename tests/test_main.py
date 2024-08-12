@@ -13,7 +13,7 @@ class TestMain(unittest.TestCase):
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
         save_folder = None
 
-        output = main(mode, device, save_folder)
+        output = main(mode, device, save_folder, return_results=True)
 
         self.assertTrue(len(output.items()) > 0)
 
@@ -23,9 +23,5 @@ class TestMain(unittest.TestCase):
                 expected_result.columns = pd.to_numeric(expected_result.columns)
             else:
                 expected_result = pd.read_csv(Path("expected_results") / (name + ".csv"), header=[0, 1, 2], index_col=[0, 1], skipinitialspace=True)
-
-            print(expected_result)
-            print(result)
-            print(expected_result.equals(result))
 
             self.assertTrue(expected_result.equals(result))
