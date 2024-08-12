@@ -1,4 +1,3 @@
-![Unit Tests](https://github.com/iliiliiliili/insider-influence/actions/workflows/unittest.yml/badge.svg)
 [![DOI](https://zenodo.org/badge/513898679.svg)](https://zenodo.org/badge/latestdoi/513898679)
 
 # Model performance
