@@ -16,5 +16,14 @@ jobs:
         run: pip install torch torchvision torchaudio
       - name: Install requirements
         run: pip install -r requirements.txt
+      - name: wget
+        uses: wei/wget@v1
+        with:
+          args: -O ego_graphs.zip https://figshare.com/ndownloader/articles/20310240/versions/1
+      - name: unzip
+        run: unzip ego_graphs.zip -D data
+      - name: unzip each subfolder
+        working-directory: ./data
+        run: for k in *.zip; do unzip $k; done
       - name: Run tests
         run: bash run_tests.sh
