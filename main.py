@@ -378,7 +378,7 @@ def main(mode="train", device="cuda:0", save_folder="results", return_results=Fa
                 f"{architecture}_{horizon}_{frequency}_{direction}/"
                 "checkpoint.pt"
             )
-            model.load_state_dict(torch.load(path_model_checkpoint))
+            model.load_state_dict(torch.load(path_model_checkpoint, weights_only=True))
 
         model.eval()
 
@@ -500,22 +500,22 @@ def main(mode="train", device="cuda:0", save_folder="results", return_results=Fa
             table_10.at[(investor_type, adj_distance), "AUC"] = distance_perofmance.auc
 
     table_5 = (
-        table_5.round(2).unstack([1, 2, 3]).stack(0).sort_index(ascending=[True, False])
+        table_5.round(2).unstack([1, 2, 3]).stack(0, future_stack=True).sort_index(ascending=[True, False])
     )
     print("TABLE 5:\n", table_5)
 
     table_8 = (
-        table_8.round(2).unstack([1, 2, 3]).stack(0).sort_index(ascending=[True, False])
+        table_8.round(2).unstack([1, 2, 3]).stack(0, future_stack=True).sort_index(ascending=[True, False])
     )
     print("TABLE 8:\n", table_8)
 
     table_9 = (
-        table_9.round(2).unstack([1, 2, 3]).stack(0).sort_index(ascending=[True, False])
+        table_9.round(2).unstack([1, 2, 3]).stack(0, future_stack=True).sort_index(ascending=[True, False])
     )
     print("TABLE 9:\n", table_9)
 
     table_10 = (
-        table_10.round(2).unstack(1).stack(0).sort_index(ascending=[False, False])
+        table_10.round(2).unstack(1).stack(0, future_stack=True).sort_index(ascending=[False, False])
     )
     print("TABLE 10:\n", table_10)
 
