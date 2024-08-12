@@ -90,17 +90,17 @@ def train_model(
 
         train_loss = train_losses / train_totals
         progress_bar.update()
-        print("train loss in this epoch %f %f", epoch, train_loss)
+        # print("train loss in this epoch %f %f", epoch, train_loss)
         tensorboard_logger.add_scalar("Loss/train", train_loss, epoch)
         # =========================================================================
         #   VALIDATE MODEL
         # =========================================================================
 
         valid_loss, best_thr, valid_stats = evaluate(model, class_weight, valid_loader, device)
-        print(
-            f" epoch: {epoch} train_loss: {train_loss:.5f}, "
-            f"valid_loss: {valid_loss:.5f}, best_thr: {best_thr}"
-        )
+        # print(
+        #     f" epoch: {epoch} train_loss: {train_loss:.5f}, "
+        #     f"valid_loss: {valid_loss:.5f}, best_thr: {best_thr}"
+        # )
 
         tensorboard_logger.add_scalar("Loss/valid", valid_loss, epoch)
 
@@ -128,7 +128,7 @@ def train_model(
 
             break
     # TODO: should the validation be done after the best model is loaded?
-    model.load_state_dict(torch.load(param_path))
+    model.load_state_dict(torch.load(param_path, weights_only=True))
     model.eval()
 
     _, best_thr, _ = evaluate(model, class_weight, valid_loader, device)
@@ -320,6 +320,13 @@ def main(mode="train", device="cuda:0", save_folder="results", return_results=Fa
 
     prediction_list: List[pd.DataFrame] = []
     for architecture, horizon, frequency, direction in datasets:
+
+        print({
+            "architecture": architecture,
+            "horizon": horizon,
+            "frequency": frequency,
+            "direction": direction,
+        })
 
         args = get_parameters(horizon, frequency, direction, architecture)
 
