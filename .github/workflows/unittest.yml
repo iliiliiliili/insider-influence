@@ -19,7 +19,7 @@ jobs:
       - name: Download dataset
         run: wget -O ego_graphs.zip https://figshare.com/ndownloader/articles/20310240/versions/1
       - name: Unzip dataset
-        run: unzip ego_graphs.zip -D data
+        run: unzip "ego_graphs.zip -D data"
       - name: Unzip each subfolder
         working-directory: ./data
         run: for k in *.zip; do unzip $k; done
