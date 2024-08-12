@@ -28,13 +28,14 @@ from sklearn.metrics import (
     roc_auc_score,
     precision_recall_curve,
 )
+from fire import Fire
 
 
 def train_model(
     model,
     dataloader,
+    device,
     args: dict,
-    use_cuda: bool,
     patience: int,
     epochs: int,
     result_dir: str,
@@ -47,17 +48,8 @@ def train_model(
     else:
         class_weight = torch.ones(dataloader["test"].dataset.n_classes)
 
-    if use_cuda:
-        device = torch.device("cuda:1")
-        torch.cuda.set_device(device)
-        torch.cuda.manual_seed(args["seed"])
-        model.cuda(device)
-        class_weight = class_weight.cuda(device)
-        # print('Models moved to GPU.')
-    else:
-        device = torch.device("cpu")
-        torch.manual_seed(args["seed"])
-        # print('Only CPU available.')
+    class_weight = class_weight.to(device)
+    torch.cuda.manual_seed(args["seed"])
 
     params = [{"params": model.layer_stack.parameters()}]
 
@@ -86,9 +78,8 @@ def train_model(
         for _, (data, target) in enumerate(train_loader):
             batch_size = data[0].size(0)
 
-            if use_cuda:
-                target = target.cuda(DEVICE)
-                data = [tensor.cuda(DEVICE) for tensor in data]
+            target = target.to(device)
+            data = [tensor.cuda(device) for tensor in data]
 
             optimizer.zero_grad()
             output = model(data[:2], data[-1])
@@ -106,7 +97,7 @@ def train_model(
         #   VALIDATE MODEL
         # =========================================================================
 
-        valid_loss, best_thr, valid_stats = evaluate(model, class_weight, valid_loader)
+        valid_loss, best_thr, valid_stats = evaluate(model, class_weight, valid_loader, device)
         print(
             f" epoch: {epoch} train_loss: {train_loss:.5f}, "
             f"valid_loss: {valid_loss:.5f}, best_thr: {best_thr}"
@@ -141,14 +132,14 @@ def train_model(
     model.load_state_dict(torch.load(param_path))
     model.eval()
 
-    _, best_thr, _ = evaluate(model, class_weight, valid_loader)
+    _, best_thr, _ = evaluate(model, class_weight, valid_loader, device)
 
     print(
         f" epoch: {epoch} train_loss: {train_loss}, "
         f"valid_loss: {valid_loss}, best_thr: {best_thr}"
     )
     test_loss, _, test_stats = evaluate(
-        model, class_weight, test_loader, best_thr=best_thr
+        model, class_weight, test_loader, device, best_thr=best_thr
     )
     tensorboard_logger.add_scalar("Loss/test", test_loss, epoch)
     tensorboard_logger.add_pr_curve(
@@ -189,19 +180,19 @@ def train_model(
     return model
 
 
-def evaluate(model, class_weight, loader, best_thr=None):
+def evaluate(model, class_weight, loader, device, best_thr=None):
     model.eval()
     total = 0.0
     loss = 0.0
     y_true, y_pred, y_score = [], [], []
-    class_weight = class_weight.to(DEVICE)
+    class_weight = class_weight.to(device)
 
     for _, (data, target) in enumerate(loader):
         # graph, features, labels, vertices = batch
         bs = data[0].size(0)
 
-        target = target.cuda(DEVICE)  # labels
-        data = [tensor.cuda(DEVICE) for tensor in data]
+        target = target.to(device)  # labels
+        data = [tensor.to(device) for tensor in data]
 
         output = model(data[:2], data[-1])
         loss_batch = F.nll_loss(output, target, class_weight)
@@ -304,13 +295,13 @@ def get_parameters(horizon: str, frequency: str, direction: str, architecture: s
     return args
 
 
-if __name__ == "__main__":
-    use_cuda = True
-    train = False
-    if use_cuda:
-        DEVICE = torch.device("cuda:1")
-    else:
-        DEVICE = torch.device("cpu")
+def main(mode="train", device="cuda:0"):
+
+    train = (mode == "train") or (mode == True)
+
+    if not train:
+        if mode not in ("test", False):
+            raise ValueError(f"Mode should be train or test (True or False)")
 
     datasets: List[Tuple[str, str, str, str]] = []
     for architecture in ["gat", "gcn"]:
@@ -375,7 +366,7 @@ if __name__ == "__main__":
                 model=model,
                 dataloader=data_loader,
                 args=args,
-                use_cuda=use_cuda,
+                device=device,
                 patience=10,
                 epochs=500,
                 result_dir=result_dir,
@@ -388,7 +379,7 @@ if __name__ == "__main__":
             )
             model.load_state_dict(torch.load(path_model_checkpoint))
 
-        model.to(DEVICE)
+        model.to(device)
         model.eval()
 
         test_loader = data_loader["test"]
@@ -401,7 +392,7 @@ if __name__ == "__main__":
             class_weight = torch.ones(test_loader.dataset.n_classes)
 
         valid_loss, best_thr, valid_stats = evaluate(
-            model, class_weight, data_loader["valid"]
+            model, class_weight, data_loader["valid"], device
         )
 
         distances = []
@@ -418,7 +409,7 @@ if __name__ == "__main__":
         family_flags = np.hstack(family_flags)
         own_company_flags = np.hstack(own_company_flags)
 
-        _, _, stats = evaluate(model, class_weight, test_loader, best_thr=best_thr)
+        _, _, stats = evaluate(model, class_weight, test_loader, device, best_thr=best_thr)
 
         table_5.at[(architecture, horizon, frequency, direction), "F1-score"] = stats[
             "f1"
@@ -527,3 +518,7 @@ if __name__ == "__main__":
         table_10.round(2).unstack(1).stack(0).sort_index(ascending=[False, False])
     )
     print("TABLE 10:\n", table_10)
+
+
+if __name__ == "__main__":
+    Fire(main)
