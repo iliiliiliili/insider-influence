@@ -17,8 +17,8 @@ import torch
 from tqdm import tqdm
 from earlystopping import EarlyStopping
 from data_loader import return_train_valid_test_sets
-from gcn import BatchGCN
-from gat import BatchGAT
+from networks.gcn import BatchGCN
+from networks.gat import BatchGAT
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 import torch.nn.functional as F

@@ -7,7 +7,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-from gcn_layers import BatchGraphConvolution
+from networks.gcn_layers import BatchGraphConvolution
 from torch.nn.parameter import Parameter
 import torch.nn.init as init
 

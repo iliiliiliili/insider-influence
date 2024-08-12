@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from gat_layers import BatchMultiHeadGraphAttention
+from networks.gat_layers import BatchMultiHeadGraphAttention
 
 
 class BatchGAT(nn.Module):
