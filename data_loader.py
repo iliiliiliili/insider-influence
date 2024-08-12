@@ -87,7 +87,7 @@ def stratified_split(
 
 
 class AnonymizedInfluenceDataSet(Dataset):
-    def __init__(self, args):
+    def __init__(self, args, verbose=False):
         self.args = args
         self.public_file_dir = args["public_file_dir"]
 
@@ -103,10 +103,11 @@ class AnonymizedInfluenceDataSet(Dataset):
         graphs = pd.read_csv(self.public_file_dir + "Public_Graphs.csv")
         graphs.set_index(["observation id", "neighbor id"], inplace=True)
         self.graphs = np.array(
-            [graph.values for _, graph in graphs.groupby(level=["observation id"])]
+            [graph.values for _, graph in graphs.groupby(level="observation id")]
         )
         self.graphs = self.prepare_graphs(graphs=self.graphs)
-        print("graphs loaded and prepared! Shape: {}".format(self.graphs.shape))
+        if verbose:
+            print("graphs loaded and prepared! Shape: {}".format(self.graphs.shape))
 
         influence_features = pd.read_csv(
             self.public_file_dir + "Public_Influence_Features.csv"
@@ -117,37 +118,45 @@ class AnonymizedInfluenceDataSet(Dataset):
             [
                 influence_features.values
                 for _, influence_features in influence_features.groupby(
-                    level=["observation id"]
+                    level="observation id"
                 )
             ]
         )
-        print(
-            "influence features loaded! Shape: {}".format(self.influence_features.shape)
-        )
+        if verbose:
+            print(
+                "influence features loaded! Shape: {}".format(self.influence_features.shape)
+            )
 
         labels = pd.read_csv(self.public_file_dir + "Public_Labels.csv", index_col=[0])
         self.labels = labels.label.values
-        print("labels loaded! Shape: {}".format(self.labels.shape))
+        if verbose:
+            print("labels loaded! Shape: {}".format(self.labels.shape))
 
         distances = pd.read_csv(
             self.public_file_dir + "Public_Distances.csv", index_col=[0]
         )
         self.distances = distances.distance.values
-        print("distances loaded! Shape: {}".format(self.distances.shape))
+        
+        if verbose:
+            print("distances loaded! Shape: {}".format(self.distances.shape))
 
         family_flags = pd.read_csv(
             self.public_file_dir + "Public_Family_flag.csv", index_col=[0]
         )
         self.family_flags = family_flags.family_flag.values
-        print("family_flags loaded! Shape: {}".format(self.family_flags.shape))
+        
+        if verbose:
+            print("family_flags loaded! Shape: {}".format(self.family_flags.shape))
 
         own_company_flags = pd.read_csv(
             self.public_file_dir + "Public_Own_Company_flag.csv", index_col=[0]
         )
         self.own_company_flags = own_company_flags.own_company.values
-        print(
-            "own_company_flags loaded! Shape: {}".format(self.own_company_flags.shape)
-        )
+        
+        if verbose:
+            print(
+                "own_company_flags loaded! Shape: {}".format(self.own_company_flags.shape)
+            )
 
         normalized_embeddings = pd.read_csv(
             self.public_file_dir + "Public_Normalized_Embedding.csv"
@@ -158,27 +167,33 @@ class AnonymizedInfluenceDataSet(Dataset):
             [
                 normalized_embedings.values
                 for _, normalized_embedings in normalized_embeddings.groupby(
-                    level=["observation id"]
+                    level="observation id"
                 )
             ]
         )
         # self.normalized_embeddings = np.load(self.public_file_dir + 'Public_Normalized_Embedding.npy')
         # self.normalized_embeddings = torch.load(self.public_file_dir + 'Public_Normalized_Embedding_tensor.pt')
-        print(
-            "normalized_embeddings loaded! Shape: {}".format(
-                self.normalized_embeddings.shape
+        
+        if verbose:
+            print(
+                "normalized_embeddings loaded! Shape: {}".format(
+                    self.normalized_embeddings.shape
+                )
             )
-        )
 
         self.N = self.graphs.shape[0]
-        print(
-            "{} ego networks loaded, each with size {}".format(
-                self.N, self.graphs.shape[1]
+        
+        if verbose:
+            print(
+                "{} ego networks loaded, each with size {}".format(
+                    self.N, self.graphs.shape[1]
+                )
             )
-        )
 
         self.n_classes = self.get_num_class()
-        print("Number of classes: {}".format(self.n_classes))
+        
+        if verbose:
+            print("Number of classes: {}".format(self.n_classes))
 
         class_weight = self.N / (self.n_classes * np.bincount(self.labels))
         self.class_weight = torch.FloatTensor(class_weight)
