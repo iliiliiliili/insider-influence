@@ -9,11 +9,25 @@ from main import (
 class TestMain(unittest.TestCase):
 
     def test_main_test(self):
-        mode = "test"
+        mode="test"
+        name="original"
+        path="."
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        save_folder = None
+        results_folder=None
+        models_folder="models"
+        return_results=True
+        seed=2605
 
-        output = main(mode, device, save_folder, return_results=True)
+        output = main(
+            mode,
+            name,
+            path,
+            device,
+            results_folder,
+            models_folder,
+            return_results,
+            seed,
+        )
 
         self.assertTrue(len(output.items()) > 0)
 

@@ -5,5 +5,6 @@ __pycache__
 /data
 
 .vscode
-models/new*
-models/v*new*
+!models
+models/*
+!models/original

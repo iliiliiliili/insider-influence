@@ -250,7 +250,7 @@ class AnonymizedInfluenceDataSet(Dataset):
         ), self.labels[idx]
 
 
-def return_train_valid_test_sets(args: dict, batch_size: int, shuffle: bool = True):
+def create_train_valid_test_sets(args: dict, batch_size: int, shuffle: bool = True):
     influence_dataset = AnonymizedInfluenceDataSet(args)
 
     train_loader = DataLoader(

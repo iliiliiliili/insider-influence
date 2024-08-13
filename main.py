@@ -8,13 +8,13 @@ Created on Tue Jul 12 16:06:30 2022
 
 import json
 import os
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
 from earlystopping import EarlyStopping
-from data_loader import return_train_valid_test_sets
+from data_loader import create_train_valid_test_sets
 from networks.gcn import BatchGCN
 from networks.gat import BatchGAT
 from torch.utils.tensorboard import SummaryWriter
@@ -96,7 +96,9 @@ def train_model(
         #   VALIDATE MODEL
         # =========================================================================
 
-        valid_loss, best_thr, valid_stats = evaluate(model, class_weight, valid_loader, device)
+        valid_loss, best_thr, valid_stats = evaluate(
+            model, class_weight, valid_loader, device
+        )
         # print(
         #     f" epoch: {epoch} train_loss: {train_loss:.5f}, "
         #     f"valid_loss: {valid_loss:.5f}, best_thr: {best_thr}"
@@ -265,15 +267,29 @@ def evaluate_predictions(df):
     )
 
 
-def get_parameters(horizon: str, frequency: str, direction: str, architecture: str):
+def get_parameters(
+    horizon: str,
+    frequency: str,
+    direction: str,
+    architecture: str,
+    seed: Union[int, List[int]],
+    name: str,
+    path: str,
+):
 
     with open("./models/gat_gcn_parameters.json", "r") as file:
         model_parameters = json.load(file)
 
+    data_seed = seed
+
+    if isinstance(seed, list):
+        data_seed = seed[1]
+        seed = seed[0]
+
     params = model_parameters[f"{architecture}_{horizon}_{frequency}_{direction}"]
     args = {
-        "data_split_seed": 20,
-        "seed": 43,
+        "data_split_seed": data_seed,
+        "seed": seed,
         "batch_size": int(
             model_parameters[f"{architecture}_{horizon}_{frequency}_{direction}"][
                 "batch"
@@ -289,12 +305,23 @@ def get_parameters(horizon: str, frequency: str, direction: str, architecture: s
         "dropout": params["drop-out"],
         "class_weight_balanced": True,
         "lr": params["lr"],
+        "name": name,
+        "path": path,
     }
 
     return args
 
 
-def main(mode="train", device="cuda:0", save_folder="results", return_results=False):
+def main(
+    mode="train",
+    name="retrained",
+    path="baselines",
+    device="cuda:0",
+    results_folder="results",
+    models_folder="models",
+    return_results=False,
+    seed=2605,
+):
 
     train = (mode == "train") or (mode == True)
 
@@ -321,18 +348,22 @@ def main(mode="train", device="cuda:0", save_folder="results", return_results=Fa
     prediction_list: List[pd.DataFrame] = []
     for architecture, horizon, frequency, direction in datasets:
 
-        print({
-            "architecture": architecture,
-            "horizon": horizon,
-            "frequency": frequency,
-            "direction": direction,
-        })
+        print(
+            {
+                "architecture": architecture,
+                "horizon": horizon,
+                "frequency": frequency,
+                "direction": direction,
+            }
+        )
 
-        args = get_parameters(horizon, frequency, direction, architecture)
+        args = get_parameters(
+            horizon, frequency, direction, architecture, seed, name, path
+        )
 
         np.random.seed(args["data_split_seed"])
         torch.manual_seed(args["data_split_seed"])
-        data_loader = return_train_valid_test_sets(args, batch_size=args["batch_size"])
+        data_loader = create_train_valid_test_sets(args, batch_size=args["batch_size"])
 
         np.random.seed(args["seed"])
         torch.manual_seed(args["seed"])
@@ -365,11 +396,14 @@ def main(mode="train", device="cuda:0", save_folder="results", return_results=Fa
         model.to(device)
 
         if train:
-            # dataiter = iter(data_loader['train'])
-            # data, target = next(dataiter)
-            result_dir = (
-                "./models/" f"new_{architecture}_{horizon}_{frequency}_{direction}/"
+            model_path = (
+                Path(models_folder)
+                / path
+                / name
+                / f"{architecture}_{horizon}_{frequency}_{direction}"
             )
+            os.makedirs(results_folder, exist_ok=True)
+
             train_model(
                 model=model,
                 dataloader=data_loader,
@@ -377,13 +411,15 @@ def main(mode="train", device="cuda:0", save_folder="results", return_results=Fa
                 device=device,
                 patience=10,
                 epochs=500,
-                result_dir=result_dir,
+                result_dir=model_path,
             )
         else:
             path_model_checkpoint = (
-                "./models/"
-                f"{architecture}_{horizon}_{frequency}_{direction}/"
-                "checkpoint.pt"
+                Path(models_folder)
+                / path
+                / name
+                / f"{architecture}_{horizon}_{frequency}_{direction}"
+                / "checkpoint.pt"
             )
             model.load_state_dict(torch.load(path_model_checkpoint, weights_only=True))
 
@@ -416,7 +452,9 @@ def main(mode="train", device="cuda:0", save_folder="results", return_results=Fa
         family_flags = np.hstack(family_flags)
         own_company_flags = np.hstack(own_company_flags)
 
-        _, _, stats = evaluate(model, class_weight, test_loader, device, best_thr=best_thr)
+        _, _, stats = evaluate(
+            model, class_weight, test_loader, device, best_thr=best_thr
+        )
 
         table_5.at[(architecture, horizon, frequency, direction), "F1-score"] = stats[
             "f1"
@@ -507,22 +545,34 @@ def main(mode="train", device="cuda:0", save_folder="results", return_results=Fa
             table_10.at[(investor_type, adj_distance), "AUC"] = distance_perofmance.auc
 
     table_5 = (
-        table_5.round(2).unstack([1, 2, 3]).stack(0, future_stack=True).sort_index(ascending=[True, False])
+        table_5.round(2)
+        .unstack([1, 2, 3])
+        .stack(0, future_stack=True)
+        .sort_index(ascending=[True, False])
     )
     print("TABLE 5:\n", table_5)
 
     table_8 = (
-        table_8.round(2).unstack([1, 2, 3]).stack(0, future_stack=True).sort_index(ascending=[True, False])
+        table_8.round(2)
+        .unstack([1, 2, 3])
+        .stack(0, future_stack=True)
+        .sort_index(ascending=[True, False])
     )
     print("TABLE 8:\n", table_8)
 
     table_9 = (
-        table_9.round(2).unstack([1, 2, 3]).stack(0, future_stack=True).sort_index(ascending=[True, False])
+        table_9.round(2)
+        .unstack([1, 2, 3])
+        .stack(0, future_stack=True)
+        .sort_index(ascending=[True, False])
     )
     print("TABLE 9:\n", table_9)
 
     table_10 = (
-        table_10.round(2).unstack(1).stack(0, future_stack=True).sort_index(ascending=[False, False])
+        table_10.round(2)
+        .unstack(1)
+        .stack(0, future_stack=True)
+        .sort_index(ascending=[False, False])
     )
     print("TABLE 10:\n", table_10)
 
@@ -533,16 +583,16 @@ def main(mode="train", device="cuda:0", save_folder="results", return_results=Fa
         "table_10": table_10,
     }
 
-    if save_folder is not None:
-        save_folder = Path(save_folder)
-        os.makedirs(save_folder, exist_ok=True)
+    if results_folder is not None:
+        results_folder = Path(results_folder) / path / name
+        os.makedirs(results_folder, exist_ok=True)
 
-        with open(save_folder / ".gitignore", "w") as f:
+        with open(results_folder / ".gitignore", "w") as f:
             f.write("*\n")
-        
+
         for name, result in results.items():
-            result.to_csv(save_folder / (name + ".csv"))
-    
+            result.to_csv(results_folder / (name + ".csv"))
+
     if return_results:
         return results
 
