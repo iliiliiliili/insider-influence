@@ -13,6 +13,8 @@ FREQUENCY_FLAGS = ["D", "W"]
 DIRECTION_FLAGS = ["Buy", "Sell"]
 MODEL_TYPE_FLAGS = ["baselines", "vnn", "original"]
 
+EXPERIMENTS_PER_GROUP = 20
+
 
 @dataclass
 class SingleResult:
@@ -184,6 +186,28 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
                     )
 
                     for i, experiment in enumerate(experiments):
+
+                        if i >= EXPERIMENTS_PER_GROUP:
+                            line = [
+                                horizon,
+                                frequency,
+                                direction,
+                                model_type,
+                                "...",
+                                "...",
+                                "...",
+                                "...",
+                                "...",
+                                "...",
+                                "...",
+                                "...",
+                                "...",
+                                "...",
+                                *["..." for _ in extra_flags],
+                            ]
+                            table.append(line)
+                            raw_table.append(line)
+                            break
 
                         experiments_exist = True
 
