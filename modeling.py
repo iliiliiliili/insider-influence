@@ -44,8 +44,8 @@ def seeds(networks="gat", devices=8, processes_per_device=3):
 
     experiments = []
 
-    for seed in range(1, 10):
-        for data_seed in range(1, 10):
+    for seed in range(20, 50):
+        for data_seed in range(20, 50):
             experiments.append((["train", f"seeds/{seed}_{data_seed}", networks], {"seed":[seed, data_seed]}))
     
     run_experiments(experiments, devices, processes_per_device)

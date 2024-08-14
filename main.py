@@ -27,6 +27,7 @@ from sklearn.metrics import (
     roc_auc_score,
     precision_recall_curve,
 )
+from statistics import stdev, mean
 from fire import Fire
 
 
@@ -321,7 +322,7 @@ def main(
     results_folder="results",
     models_folder="models",
     return_results=False,
-    seed=2605,
+    seeds=[1, 2, 6, 5, 10, 40, 43, 46, 50],
 ):
     if not isinstance(networks, list):
         networks = [networks]
@@ -346,186 +347,218 @@ def main(
     table_8_non_own_securities = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
 
     # Only only samples with non-own securities traded by insiders themselves
-    table_9_non_own_securities_self_trading = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
+    table_9_non_own_securities_self_trading = pd.DataFrame(
+        index=pd.MultiIndex.from_tuples(datasets)
+    )
 
     prediction_list: List[pd.DataFrame] = []
+
     for architecture, horizon, frequency, direction in datasets:
 
-        print(
-            {
-                "architecture": architecture,
-                "horizon": horizon,
-                "frequency": frequency,
-                "direction": direction,
-            }
-        )
-
         single_model_result = {
-
+            "f1": [],
+            "auc": [],
+            "non_own_f1": [],
+            "non_own_auc": [],
+            "insiders_non_own_f1": [],
+            "insiders_non_own_auc": [],
+            "seeds": seeds,
         }
 
-        args = get_parameters(
-            horizon, frequency, direction, architecture, seed, name, path
-        )
+        for sid, seed in enumerate(seeds):
 
-        np.random.seed(args["data_split_seed"])
-        torch.manual_seed(args["data_split_seed"])
-        data_loader = create_train_valid_test_sets(args, batch_size=args["batch_size"])
+            data_seed = seed
 
-        np.random.seed(args["seed"])
-        torch.manual_seed(args["seed"])
-
-        n_neighbors = data_loader["test"].dataset.n_neighbors
-        n_classes = data_loader["test"].dataset.get_num_class()
-
-        feature_dim = data_loader["test"].dataset.get_feature_dimension()
-        n_units = (
-            [feature_dim]
-            + [int(x) for x in args["hidden_units"].strip().split(",")]
-            + [data_loader["test"].dataset.n_classes]
-        )
-
-        # Model and optimizer
-        if args["model"] == "gcn":
-            model = BatchGCN(  # pretrained_emb=embedding,
-                n_neighbors=n_neighbors, n_units=n_units, dropout=args["dropout"]
+            print(
+                {
+                    "seed": seed,
+                    "sid" : f"{sid + 1} / {len(seeds)}",
+                    "architecture": architecture,
+                    "horizon": horizon,
+                    "frequency": frequency,
+                    "direction": direction,
+                }
             )
-        elif args["model"] == "gat":
-            n_heads = [int(x) for x in args["heads"].strip().split(",")]
-            model = BatchGAT(  # pretrained_emb=embedding,
-                n_units=n_units,
-                n_heads=n_heads,
-                dropout=args["dropout"],
+
+            args = get_parameters(
+                horizon, frequency, direction, architecture, seed, name, path
             )
-        else:
-            raise NotImplementedError
 
-        model.to(device)
+            np.random.seed(data_seed)
+            torch.manual_seed(data_seed)
+            data_loader = create_train_valid_test_sets(
+                args, batch_size=args["batch_size"]
+            )
 
-        if train:
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+
+            n_neighbors = data_loader["test"].dataset.n_neighbors
+            n_classes = data_loader["test"].dataset.get_num_class()
+
+            feature_dim = data_loader["test"].dataset.get_feature_dimension()
+            n_units = (
+                [feature_dim]
+                + [int(x) for x in args["hidden_units"].strip().split(",")]
+                + [data_loader["test"].dataset.n_classes]
+            )
+
+            # Model and optimizer
+            if args["model"] == "gcn":
+                model = BatchGCN(  # pretrained_emb=embedding,
+                    n_neighbors=n_neighbors, n_units=n_units, dropout=args["dropout"]
+                )
+            elif args["model"] == "gat":
+                n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                model = BatchGAT(  # pretrained_emb=embedding,
+                    n_units=n_units,
+                    n_heads=n_heads,
+                    dropout=args["dropout"],
+                )
+            else:
+                raise NotImplementedError
+
+            model.to(device)
+
             model_path = (
                 Path(models_folder)
                 / path
                 / name
-                / f"{architecture}_{horizon}_{frequency}_{direction}"
+                / f"{architecture}_{horizon}_{frequency}_{direction}_seed_{seed}"
             )
-            os.makedirs(results_folder, exist_ok=True)
 
-            train_model(
-                model=model,
-                dataloader=data_loader,
-                args=args,
-                device=device,
-                patience=10,
-                epochs=500,
-                result_dir=model_path,
+            if train:
+                os.makedirs(results_folder, exist_ok=True)
+
+                train_model(
+                    model=model,
+                    dataloader=data_loader,
+                    args=args,
+                    device=device,
+                    patience=10,
+                    epochs=500,
+                    result_dir=model_path,
+                )
+            else:
+                path_model_checkpoint = model_path / "checkpoint.pt"
+                model.load_state_dict(
+                    torch.load(path_model_checkpoint, weights_only=True)
+                )
+
+            model.eval()
+
+            test_loader = data_loader["test"]
+            test_loader.sampler.shuffle = False
+            data_loader["valid"].sampler.shuffle = False
+
+            if args["class_weight_balanced"]:
+                class_weight = test_loader.dataset.get_class_weight()
+            else:
+                class_weight = torch.ones(test_loader.dataset.n_classes)
+
+            valid_loss, best_thr, valid_stats = evaluate(
+                model, class_weight, data_loader["valid"], device
             )
-        else:
-            path_model_checkpoint = (
-                Path(models_folder)
-                / path
-                / name
-                / f"{architecture}_{horizon}_{frequency}_{direction}"
-                / "checkpoint.pt"
+
+            distances = []
+            family_flags = []
+            own_company_flags = []
+            for data, _ in test_loader:
+                (
+                    _,
+                    _,
+                    batch_distances,
+                    batch_family_flags,
+                    batch_own_company_flags,
+                    _,
+                ) = data
+                distances.append(batch_distances.numpy())
+                family_flags.append(batch_family_flags.numpy())
+                own_company_flags.append(batch_own_company_flags.numpy())
+            distances = np.hstack(distances)
+            family_flags = np.hstack(family_flags)
+            own_company_flags = np.hstack(own_company_flags)
+
+            _, _, stats = evaluate(
+                model, class_weight, test_loader, device, best_thr=best_thr
             )
-            model.load_state_dict(torch.load(path_model_checkpoint, weights_only=True))
 
-        model.eval()
+            table_5_performance.at[
+                (architecture, horizon, frequency, direction), "F1-score"
+            ] = stats["f1"][1]
+            table_5_performance.at[
+                (architecture, horizon, frequency, direction), "AUC"
+            ] = stats["auc"]
 
-        test_loader = data_loader["test"]
-        test_loader.sampler.shuffle = False
-        data_loader["valid"].sampler.shuffle = False
+            single_model_result["f1"].append(stats["f1"][1])
+            single_model_result["auc"].append(stats["auc"])
 
-        if args["class_weight_balanced"]:
-            class_weight = test_loader.dataset.get_class_weight()
-        else:
-            class_weight = torch.ones(test_loader.dataset.n_classes)
+            predictions = pd.DataFrame(
+                [
+                    own_company_flags,
+                    family_flags,
+                    distances,
+                    stats["predicted_labels"],
+                    stats["labels"].numpy(),
+                    stats["predictions"].numpy(),
+                ],
+                index=[
+                    "own_company_flag",
+                    "family_flag",
+                    "distance",
+                    "prediction",
+                    "label",
+                    "score",
+                ],
+            ).T
 
-        valid_loss, best_thr, valid_stats = evaluate(
-            model, class_weight, data_loader["valid"], device
-        )
+            predictions["best_thr"] = np.exp(best_thr)
+            predictions["dataset"] = f"{horizon}_{frequency}_{direction}"
+            predictions["architecture"] = architecture
+            predictions["dataset_seed"] = args["data_split_seed"]
+            predictions["seed"] = args["seed"]
+            prediction_list.append(predictions)
 
-        distances = []
-        family_flags = []
-        own_company_flags = []
-        for data, _ in test_loader:
-            (_, _, batch_distances, batch_family_flags, batch_own_company_flags, _) = (
-                data
+            non_own_companies = evaluate_predictions(
+                predictions[predictions.own_company_flag == 0]
             )
-            distances.append(batch_distances.numpy())
-            family_flags.append(batch_family_flags.numpy())
-            own_company_flags.append(batch_own_company_flags.numpy())
-        distances = np.hstack(distances)
-        family_flags = np.hstack(family_flags)
-        own_company_flags = np.hstack(own_company_flags)
+            table_8_non_own_securities.at[
+                (architecture, horizon, frequency, direction), "F1-score"
+            ] = non_own_companies.f1
+            table_8_non_own_securities.at[
+                (architecture, horizon, frequency, direction), "AUC"
+            ] = non_own_companies.auc
 
-        _, _, stats = evaluate(
-            model, class_weight, test_loader, device, best_thr=best_thr
+            single_model_result["non_own_f1"].append(non_own_companies.f1)
+            single_model_result["non_own_auc"].append(non_own_companies.auc)
+
+            insiders_non_own_companies = evaluate_predictions(
+                predictions[
+                    (predictions.own_company_flag == 0) & (predictions.family_flag == 0)
+                ]
+            )
+            table_9_non_own_securities_self_trading.at[
+                (architecture, horizon, frequency, direction), "F1-score"
+            ] = insiders_non_own_companies.f1
+            table_9_non_own_securities_self_trading.at[
+                (architecture, horizon, frequency, direction), "AUC"
+            ] = insiders_non_own_companies.auc
+
+            single_model_result["insiders_non_own_f1"].append(non_own_companies.f1)
+            single_model_result["insiders_non_own_auc"].append(non_own_companies.auc)
+
+        for key in single_model_result.keys():
+            if key != "seeds":
+                std = stdev(single_model_result[key])
+                single_model_result[key] = mean(single_model_result[key])
+                single_model_result[key + "_std"] = std
+
+        results_folder_path = (
+            Path(results_folder)
+            / path
+            / name
+            / f"{architecture}_{horizon}_{frequency}_{direction}"
         )
-
-        table_5_performance.at[(architecture, horizon, frequency, direction), "F1-score"] = stats[
-            "f1"
-        ][1]
-        table_5_performance.at[(architecture, horizon, frequency, direction), "AUC"] = stats["auc"]
-
-        single_model_result["f1"] = stats["f1"][1]
-        single_model_result["auc"] = stats["auc"]
-
-        predictions = pd.DataFrame(
-            [
-                own_company_flags,
-                family_flags,
-                distances,
-                stats["predicted_labels"],
-                stats["labels"].numpy(),
-                stats["predictions"].numpy(),
-            ],
-            index=[
-                "own_company_flag",
-                "family_flag",
-                "distance",
-                "prediction",
-                "label",
-                "score",
-            ],
-        ).T
-
-        predictions["best_thr"] = np.exp(best_thr)
-        predictions["dataset"] = f"{horizon}_{frequency}_{direction}"
-        predictions["architecture"] = architecture
-        predictions["dataset_seed"] = args["data_split_seed"]
-        predictions["seed"] = args["seed"]
-        prediction_list.append(predictions)
-
-        non_own_companies = evaluate_predictions(
-            predictions[predictions.own_company_flag == 0]
-        )
-        table_8_non_own_securities.at[(architecture, horizon, frequency, direction), "F1-score"] = (
-            non_own_companies.f1
-        )
-        table_8_non_own_securities.at[(architecture, horizon, frequency, direction), "AUC"] = (
-            non_own_companies.auc
-        )
-
-        single_model_result["non_own_f1"] = non_own_companies.f1
-        single_model_result["non_own_auc"] = non_own_companies.auc
-
-        insiders_non_own_companies = evaluate_predictions(
-            predictions[
-                (predictions.own_company_flag == 0) & (predictions.family_flag == 0)
-            ]
-        )
-        table_9_non_own_securities_self_trading.at[(architecture, horizon, frequency, direction), "F1-score"] = (
-            insiders_non_own_companies.f1
-        )
-        table_9_non_own_securities_self_trading.at[(architecture, horizon, frequency, direction), "AUC"] = (
-            insiders_non_own_companies.auc
-        )
-        
-        single_model_result["insiders_non_own_f1"] = non_own_companies.f1
-        single_model_result["insiders_non_own_auc"] = non_own_companies.auc
-
-        results_folder_path = Path(results_folder) / path / name / f"{architecture}_{horizon}_{frequency}_{direction}"
         os.makedirs(results_folder_path, exist_ok=True)
 
         with open(results_folder_path / "result.json", "w") as f:

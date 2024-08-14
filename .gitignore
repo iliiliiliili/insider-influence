@@ -9,3 +9,4 @@ __pycache__
 models/*
 !models/original
 results
+inclusion_table.txt
