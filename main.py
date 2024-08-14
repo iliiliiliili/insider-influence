@@ -337,13 +337,13 @@ def main(
                     datasets.append((architecture, horizon, frequency, direction))
 
     # Main result for best GCN and GAT architectures
-    table_5 = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
+    table_5_performance = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
 
     # Only samples with non-own securities
-    table_8 = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
+    table_8_non_own_securities = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
 
     # Only only samples with non-own securities traded by insiders themselves
-    table_9 = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
+    table_9_non_own_securities_self_trading = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
 
     prediction_list: List[pd.DataFrame] = []
     for architecture, horizon, frequency, direction in datasets:
@@ -356,6 +356,10 @@ def main(
                 "direction": direction,
             }
         )
+
+        single_model_result = {
+
+        }
 
         args = get_parameters(
             horizon, frequency, direction, architecture, seed, name, path
@@ -456,10 +460,13 @@ def main(
             model, class_weight, test_loader, device, best_thr=best_thr
         )
 
-        table_5.at[(architecture, horizon, frequency, direction), "F1-score"] = stats[
+        table_5_performance.at[(architecture, horizon, frequency, direction), "F1-score"] = stats[
             "f1"
         ][1]
-        table_5.at[(architecture, horizon, frequency, direction), "AUC"] = stats["auc"]
+        table_5_performance.at[(architecture, horizon, frequency, direction), "AUC"] = stats["auc"]
+
+        single_model_result["f1"] = stats["f1"][1]
+        single_model_result["auc"] = stats["auc"]
 
         predictions = pd.DataFrame(
             [
@@ -490,24 +497,36 @@ def main(
         non_own_companies = evaluate_predictions(
             predictions[predictions.own_company_flag == 0]
         )
-        table_8.at[(architecture, horizon, frequency, direction), "F1-score"] = (
+        table_8_non_own_securities.at[(architecture, horizon, frequency, direction), "F1-score"] = (
             non_own_companies.f1
         )
-        table_8.at[(architecture, horizon, frequency, direction), "AUC"] = (
+        table_8_non_own_securities.at[(architecture, horizon, frequency, direction), "AUC"] = (
             non_own_companies.auc
         )
+
+        single_model_result["non_own_f1"] = non_own_companies.f1
+        single_model_result["non_own_auc"] = non_own_companies.auc
 
         insiders_non_own_companies = evaluate_predictions(
             predictions[
                 (predictions.own_company_flag == 0) & (predictions.family_flag == 0)
             ]
         )
-        table_9.at[(architecture, horizon, frequency, direction), "F1-score"] = (
+        table_9_non_own_securities_self_trading.at[(architecture, horizon, frequency, direction), "F1-score"] = (
             insiders_non_own_companies.f1
         )
-        table_9.at[(architecture, horizon, frequency, direction), "AUC"] = (
+        table_9_non_own_securities_self_trading.at[(architecture, horizon, frequency, direction), "AUC"] = (
             insiders_non_own_companies.auc
         )
+        
+        single_model_result["insiders_non_own_f1"] = non_own_companies.f1
+        single_model_result["insiders_non_own_auc"] = non_own_companies.auc
+
+        results_folder_path = Path(results_folder) / path / name / f"{architecture}_{horizon}_{frequency}_{direction}"
+        os.makedirs(results_folder_path, exist_ok=True)
+
+        with open(results_folder_path / "result.json", "w") as f:
+            json.dump(single_model_result, f)
 
     combined_predictions = pd.concat(prediction_list, axis=0)
     combined_predictions = combined_predictions[
@@ -544,29 +563,29 @@ def main(
             )
             table_10.at[(investor_type, adj_distance), "AUC"] = distance_perofmance.auc
 
-    table_5 = (
-        table_5.round(2)
+    table_5_performance = (
+        table_5_performance.round(2)
         .unstack([1, 2, 3])
         .stack(0, future_stack=True)
         .sort_index(ascending=[True, False])
     )
-    print("TABLE 5:\n", table_5)
+    print("TABLE 5:\n", table_5_performance)
 
-    table_8 = (
-        table_8.round(2)
+    table_8_non_own_securities = (
+        table_8_non_own_securities.round(2)
         .unstack([1, 2, 3])
         .stack(0, future_stack=True)
         .sort_index(ascending=[True, False])
     )
-    print("TABLE 8:\n", table_8)
+    print("TABLE 8:\n", table_8_non_own_securities)
 
-    table_9 = (
-        table_9.round(2)
+    table_9_non_own_securities_self_trading = (
+        table_9_non_own_securities_self_trading.round(2)
         .unstack([1, 2, 3])
         .stack(0, future_stack=True)
         .sort_index(ascending=[True, False])
     )
-    print("TABLE 9:\n", table_9)
+    print("TABLE 9:\n", table_9_non_own_securities_self_trading)
 
     table_10 = (
         table_10.round(2)
@@ -577,21 +596,21 @@ def main(
     print("TABLE 10:\n", table_10)
 
     results = {
-        "table_5": table_5,
-        "table_8": table_8,
-        "table_9": table_9,
+        "table_5": table_5_performance,
+        "table_8": table_8_non_own_securities,
+        "table_9": table_9_non_own_securities_self_trading,
         "table_10": table_10,
     }
 
     if results_folder is not None:
-        results_folder = Path(results_folder) / path / name
-        os.makedirs(results_folder, exist_ok=True)
+        results_folder_path = Path(results_folder) / path / name
+        os.makedirs(results_folder_path, exist_ok=True)
 
-        with open(results_folder / ".gitignore", "w") as f:
+        with open(results_folder_path / ".gitignore", "w") as f:
             f.write("*\n")
 
         for name, result in results.items():
-            result.to_csv(results_folder / (name + ".csv"))
+            result.to_csv(results_folder_path / (name + ".csv"))
 
     if return_results:
         return results

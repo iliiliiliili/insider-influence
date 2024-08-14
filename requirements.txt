@@ -3,3 +3,5 @@ pandas
 tqdm
 scikit-learn
 tensorboard
+simple_colors
+tabulate
