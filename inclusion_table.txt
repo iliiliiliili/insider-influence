@@ -1,52 +1,52 @@
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
 horizon       freq  dir   model type  network  f1       auc   no f1  no auc  ino f1  ino auc  samples  batch  test samples  retrained
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
-Lead-lag      D     Buy   baselines   gat      0.56#    0.79  0.51   0.78    0.51    0.78                                   +
-Lead-lag      D     Buy   baselines   gcn      0.53     0.76  0.49   0.76    0.49    0.76                                   +
+Lead-lag      D     Buy   baselines   gcn      0.55#    0.74  0.51   0.73    0.51    0.73                                   +
+Lead-lag      D     Buy   baselines   gat      0.54     0.75  0.50   0.76    0.50    0.76                                   +
 Lead-lag      D     Buy   vnn
 Lead-lag      D     Buy   original    gat      0.61###  0.78  0.57   0.77    0.57    0.77
 Lead-lag      D     Buy   original    gcn      0.57     0.76  0.54   0.76    0.54    0.76
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
-Lead-lag      D     Sell  baselines   gcn      0.55#    0.76  0.55   0.77    0.55    0.77                                   +
-Lead-lag      D     Sell  baselines   gat      0.45     0.72  0.49   0.74    0.49    0.74                                   +
+Lead-lag      D     Sell  baselines   gat      0.52#    0.73  0.51   0.75    0.51    0.75                                   +
+Lead-lag      D     Sell  baselines   gcn      0.50     0.72  0.49   0.73    0.49    0.73                                   +
 Lead-lag      D     Sell  vnn
 Lead-lag      D     Sell  original    gat      0.62###  0.77  0.61   0.79    0.61    0.79
 Lead-lag      D     Sell  original    gcn      0.58     0.76  0.58   0.78    0.58    0.78
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
-Lead-lag      W     Buy   baselines   gat      0.55#    0.78  0.55   0.78    0.55    0.78                                   +
-Lead-lag      W     Buy   baselines   gcn      0.54     0.76  0.54   0.77    0.54    0.77                                   +
+Lead-lag      W     Buy   baselines   gat      0.58#    0.79  0.58   0.79    0.58    0.79                                   +
+Lead-lag      W     Buy   baselines   gcn      0.53     0.76  0.52   0.76    0.52    0.76                                   +
 Lead-lag      W     Buy   vnn
 Lead-lag      W     Buy   original    gat      0.63###  0.83  0.63   0.83    0.63    0.83
 Lead-lag      W     Buy   original    gcn      0.57     0.79  0.56   0.79    0.56    0.79
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
-Lead-lag      W     Sell  baselines   gat      0.56#    0.77  0.57   0.78    0.57    0.78                                   +
-Lead-lag      W     Sell  baselines   gcn      0.53     0.73  0.53   0.75    0.53    0.75                                   +
+Lead-lag      W     Sell  baselines   gcn      0.53#    0.73  0.53   0.75    0.53    0.75                                   +
+Lead-lag      W     Sell  baselines   gat      0.52     0.76  0.53   0.78    0.53    0.78                                   +
 Lead-lag      W     Sell  vnn
 Lead-lag      W     Sell  original    gat      0.60###  0.79  0.62   0.80    0.62    0.80
 Lead-lag      W     Sell  original    gcn      0.58     0.77  0.60   0.79    0.60    0.79
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
 horizon       freq  dir   model type  network  f1       auc   no f1  no auc  ino f1  ino auc  samples  batch  test samples  retrained
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
-Simultaneous  D     Buy   baselines   gat      0.76#    0.92  0.70   0.91    0.70    0.91                                   +
-Simultaneous  D     Buy   baselines   gcn      0.74     0.91  0.66   0.88    0.66    0.88                                   +
+Simultaneous  D     Buy   baselines   gat      0.75#    0.91  0.69   0.90    0.69    0.90                                   +
+Simultaneous  D     Buy   baselines   gcn      0.75     0.90  0.67   0.88    0.67    0.88                                   +
 Simultaneous  D     Buy   vnn
 Simultaneous  D     Buy   original    gat      0.77###  0.91  0.72   0.90    0.72    0.90
 Simultaneous  D     Buy   original    gcn      0.74     0.91  0.67   0.88    0.67    0.88
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
-Simultaneous  D     Sell  baselines   gcn      0.73#    0.89  0.75   0.90    0.75    0.90                                   +
-Simultaneous  D     Sell  baselines   gat      0.71     0.90  0.73   0.91    0.73    0.91                                   +
+Simultaneous  D     Sell  baselines   gat      0.73#    0.88  0.74   0.90    0.74    0.90                                   +
+Simultaneous  D     Sell  baselines   gcn      0.71     0.88  0.73   0.90    0.73    0.90                                   +
 Simultaneous  D     Sell  vnn
 Simultaneous  D     Sell  original    gat      0.78###  0.90  0.79   0.91    0.79    0.91
 Simultaneous  D     Sell  original    gcn      0.75     0.89  0.76   0.90    0.76    0.90
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
-Simultaneous  W     Buy   baselines   gat      0.63#    0.85  0.58   0.84    0.58    0.84                                   +
-Simultaneous  W     Buy   baselines   gcn      0.60     0.85  0.55   0.83    0.55    0.83                                   +
+Simultaneous  W     Buy   baselines   gat      0.63#    0.85  0.59   0.84    0.59    0.84                                   +
+Simultaneous  W     Buy   baselines   gcn      0.61     0.83  0.56   0.82    0.56    0.82                                   +
 Simultaneous  W     Buy   vnn
 Simultaneous  W     Buy   original    gat      0.66###  0.86  0.61   0.85    0.61    0.85
 Simultaneous  W     Buy   original    gcn      0.62     0.83  0.57   0.82    0.57    0.82
 ------------  ----  ----  ----------  -------  -------  ----  -----  ------  ------  -------  -------  -----  ------------  ---------
-Simultaneous  W     Sell  baselines   gat      0.67#    0.86  0.69   0.88    0.69    0.88                                   +
-Simultaneous  W     Sell  baselines   gcn      0.66     0.86  0.68   0.87    0.68    0.87                                   +
+Simultaneous  W     Sell  baselines   gat      0.70#    0.86  0.72   0.88    0.72    0.88                                   +
+Simultaneous  W     Sell  baselines   gcn      0.68     0.87  0.70   0.88    0.70    0.88                                   +
 Simultaneous  W     Sell  vnn
 Simultaneous  W     Sell  original    gat      0.72###  0.89  0.75   0.90    0.75    0.90
 Simultaneous  W     Sell  original    gcn      0.70     0.87  0.72   0.88    0.72    0.88

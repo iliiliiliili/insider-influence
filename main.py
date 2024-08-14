@@ -315,6 +315,7 @@ def get_parameters(
 def main(
     mode="train",
     name="retrained",
+    networks=["gat", "gcn"],
     path="baselines",
     device="cuda:0",
     results_folder="results",
@@ -322,6 +323,8 @@ def main(
     return_results=False,
     seed=2605,
 ):
+    if not isinstance(networks, list):
+        networks = [networks]
 
     train = (mode == "train") or (mode == True)
 
@@ -330,7 +333,7 @@ def main(
             raise ValueError(f"Mode should be train or test (True or False)")
 
     datasets: List[Tuple[str, str, str, str]] = []
-    for architecture in ["gat", "gcn"]:
+    for architecture in networks:
         for horizon in ["Lead-lag", "Simultaneous"]:
             for frequency in ["D", "W"]:
                 for direction in ["Buy", "Sell"]:

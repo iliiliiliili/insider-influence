@@ -301,6 +301,12 @@ def main(root="./results", show_inclusion=True):
             if params[i] == "s":
                 samples = int(params[i + 1])
                 i += 1
+            if params[i] == "seed":
+                flags.append(("seed", params[i + 1]))
+                i += 1
+            if params[i] == "seeds":
+                flags.append(("seed", params[i + 1], params[i + 2]))
+                i += 2
             elif params[i] == "b":
                 batch = int(params[i + 1])
                 i += 1
