@@ -194,6 +194,7 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
                                 for ef in experiment.flags:
                                     if isinstance(ef, tuple) and ef[0] == f:
                                         return ef[1]
+                                return ""
                             else:
                                 return "+" if f in experiment.flags else ""
 
@@ -297,16 +298,15 @@ def main(root="./results", show_inclusion=True):
 
         i = 0
 
+        params += groups
+
         while i < len(params):
             if params[i] == "s":
                 samples = int(params[i + 1])
                 i += 1
-            if params[i] == "seed":
+            if params[i] in ["seed", "seeds"]:
                 flags.append(("seed", params[i + 1]))
                 i += 1
-            if params[i] == "seeds":
-                flags.append(("seed", params[i + 1], params[i + 2]))
-                i += 2
             elif params[i] == "b":
                 batch = int(params[i + 1])
                 i += 1
@@ -336,8 +336,6 @@ def main(root="./results", show_inclusion=True):
             else:
                 flags.append(params[i])
             i += 1
-
-        flags += groups
 
         experiment_results = []
 
