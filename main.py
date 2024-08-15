@@ -547,7 +547,8 @@ def main(
             single_model_result["insiders_non_own_f1"].append(non_own_companies.f1)
             single_model_result["insiders_non_own_auc"].append(non_own_companies.auc)
 
-        for key in single_model_result.keys():
+        keys = [*single_model_result.keys()]
+        for key in keys:
             if key != "seeds":
                 std = stdev(single_model_result[key])
                 single_model_result[key] = mean(single_model_result[key])
