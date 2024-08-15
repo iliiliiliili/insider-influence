@@ -21,6 +21,7 @@ class SingleResult:
     samples: int
     batch: int
     f1: float
+    f1_std: float
     auc: float
     non_own_f1: float
     non_own_auc: float
@@ -132,6 +133,7 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
         "model type",
         "network",
         "f1",
+        "f1 std",
         "auc",
         "no f1",
         "no auc",
@@ -203,6 +205,7 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
                                 "...",
                                 "...",
                                 "...",
+                                "...",
                                 *["..." for _ in extra_flags],
                             ]
                             table.append(line)
@@ -239,6 +242,7 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
                             model_type,
                             experiment.network_type,
                             f"{best_result.f1:.2f}" + ("#" if i == 0 else "") + ("##" if is_best_in_subset else ""),
+                            f"{best_result.f1_std:.3f}" if best_result.f1_std != 0 else "",
                             f"{best_result.auc:.2f}",
                             f"{best_result.non_own_f1:.2f}",
                             f"{best_result.non_own_auc:.2f}",
@@ -259,6 +263,7 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
                             frequency,
                             direction,
                             model_type,
+                            "",
                             "",
                             "",
                             "",
@@ -375,6 +380,7 @@ def main(root="./results", show_inclusion=True):
                     samples=d["samples"] if "samples" in d else -1,
                     batch=d["batch"] if "batch" in d else -1,
                     f1=d["f1"],
+                    f1_std=d["f1_std"] if "f1_std" in d else 0,
                     auc=d["auc"],
                     non_own_f1=d["non_own_f1"],
                     non_own_auc=d["non_own_auc"],
