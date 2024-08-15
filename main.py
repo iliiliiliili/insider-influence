@@ -30,6 +30,8 @@ from sklearn.metrics import (
 from statistics import stdev, mean
 from fire import Fire
 
+from networks.vnn_gcn import VariationalBatchGCN
+
 
 def train_model(
     model,
@@ -40,7 +42,14 @@ def train_model(
     epochs: int,
     result_dir: str,
     verbose: bool = True,
+    samples=None,
 ):
+
+    extra_forward_args = {}
+
+    if samples is not None:
+        extra_forward_args["samples"] = samples
+
     print_every = 5
     tensorboard_logger = SummaryWriter(result_dir)
     if args["class_weight_balanced"]:
@@ -82,7 +91,7 @@ def train_model(
             data = [tensor.to(device) for tensor in data]
 
             optimizer.zero_grad()
-            output = model(data[:2], data[-1])
+            output = model(data[:2], data[-1], **extra_forward_args)
             loss_train = criterion(output, target)
             train_losses += batch_size * loss_train.item()
             train_totals += batch_size
@@ -182,7 +191,13 @@ def train_model(
     return model
 
 
-def evaluate(model, class_weight, loader, device, best_thr=None):
+def evaluate(model, class_weight, loader, device, best_thr=None, samples=None):
+
+    extra_forward_args = {}
+
+    if samples is not None:
+        extra_forward_args["samples"] = samples
+
     model.eval()
     total = 0.0
     loss = 0.0
@@ -196,7 +211,7 @@ def evaluate(model, class_weight, loader, device, best_thr=None):
         target = target.to(device)  # labels
         data = [tensor.to(device) for tensor in data]
 
-        output = model(data[:2], data[-1])
+        output = model(data[:2], data[-1], **extra_forward_args)
         loss_batch = F.nll_loss(output, target, class_weight)
         loss += bs * loss_batch.item()
         y_true += target.data.tolist()
@@ -287,14 +302,23 @@ def get_parameters(
         data_seed = seed[1]
         seed = seed[0]
 
-    params = model_parameters[f"{architecture}_{horizon}_{frequency}_{direction}"]
+    architecture_for_parameters = {
+        "vgcn": "gcn",
+        "vgat": "gat",
+        "gcn": "gcn",
+        "gat": "gat",
+    }[architecture]
+
+    params = model_parameters[
+        f"{architecture_for_parameters}_{horizon}_{frequency}_{direction}"
+    ]
     args = {
         "data_split_seed": data_seed,
         "seed": seed,
         "batch_size": int(
-            model_parameters[f"{architecture}_{horizon}_{frequency}_{direction}"][
-                "batch"
-            ]
+            model_parameters[
+                f"{architecture_for_parameters}_{horizon}_{frequency}_{direction}"
+            ]["batch"]
         ),
         "public_file_dir": f"./data/{horizon}_{frequency}_{direction}/",
         "shuffle": False,
@@ -313,6 +337,10 @@ def get_parameters(
     return args
 
 
+def is_variational_model(architecture):
+    return architecture in ["vgcn", "vgat"]
+
+
 def main(
     mode="train",
     name="retrained",
@@ -321,8 +349,12 @@ def main(
     device="cuda:0",
     results_folder="results",
     models_folder="models",
-    return_results=False,
+    create_tables=False,
     seeds=[1, 2, 6, 5, 10, 40, 43, 46, 50],
+    runs_per_variational_model=5,
+    train_samples=1,
+    test_samples=[2, 5, 10, 20, 40, 50],
+    **vnn_kwargs,
 ):
     if not isinstance(networks, list):
         networks = [networks]
@@ -365,6 +397,27 @@ def main(
             "seeds": seeds,
         }
 
+        if is_variational_model(architecture):
+            runs = runs_per_variational_model
+            single_model_result = [
+                {
+                    "f1": [],
+                    "auc": [],
+                    "non_own_f1": [],
+                    "non_own_auc": [],
+                    "insiders_non_own_f1": [],
+                    "insiders_non_own_auc": [],
+                    "seeds": seeds,
+                }
+                for _ in test_samples
+            ]
+            vnn_subname = f"_s{train_samples}"
+        else:
+            runs = 1
+            vnn_subname = ""
+            train_samples = None
+            test_samples = None
+
         for sid, seed in enumerate(seeds):
 
             data_seed = seed
@@ -372,7 +425,7 @@ def main(
             print(
                 {
                     "seed": seed,
-                    "sid" : f"{sid + 1} / {len(seeds)}",
+                    "sid": f"{sid + 1} / {len(seeds)}",
                     "architecture": architecture,
                     "horizon": horizon,
                     "frequency": frequency,
@@ -405,8 +458,15 @@ def main(
 
             # Model and optimizer
             if args["model"] == "gcn":
-                model = BatchGCN(  # pretrained_emb=embedding,
-                    n_neighbors=n_neighbors, n_units=n_units, dropout=args["dropout"]
+                model = BatchGCN(
+                    n_neighbors=n_neighbors,
+                    n_units=n_units,
+                    dropout=args["dropout"],
+                )
+            elif args["model"] == "vgcn":
+                model = VariationalBatchGCN(
+                    n_units=n_units,
+                    **vnn_kwargs,
                 )
             elif args["model"] == "gat":
                 n_heads = [int(x) for x in args["heads"].strip().split(",")]
@@ -424,7 +484,7 @@ def main(
                 Path(models_folder)
                 / path
                 / name
-                / f"{architecture}_{horizon}_{frequency}_{direction}_seed_{seed}"
+                / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
             )
 
             if train:
@@ -438,6 +498,7 @@ def main(
                     patience=10,
                     epochs=500,
                     result_dir=model_path,
+                    samples=train_samples,
                 )
             else:
                 path_model_checkpoint = model_path / "checkpoint.pt"
@@ -456,109 +517,141 @@ def main(
             else:
                 class_weight = torch.ones(test_loader.dataset.n_classes)
 
-            valid_loss, best_thr, valid_stats = evaluate(
-                model, class_weight, data_loader["valid"], device
-            )
+            for r in range(runs):
+                for i, samples in enumerate(test_samples):
 
-            distances = []
-            family_flags = []
-            own_company_flags = []
-            for data, _ in test_loader:
-                (
-                    _,
-                    _,
-                    batch_distances,
-                    batch_family_flags,
-                    batch_own_company_flags,
-                    _,
-                ) = data
-                distances.append(batch_distances.numpy())
-                family_flags.append(batch_family_flags.numpy())
-                own_company_flags.append(batch_own_company_flags.numpy())
-            distances = np.hstack(distances)
-            family_flags = np.hstack(family_flags)
-            own_company_flags = np.hstack(own_company_flags)
+                    print(
+                        {
+                            "rid": f"{r + 1} / {runs}",
+                            "said": f"{i + 1} / {len(test_samples)}",
+                        },
+                        end="\r",
+                    )
 
-            _, _, stats = evaluate(
-                model, class_weight, test_loader, device, best_thr=best_thr
-            )
+                    single_model_result[i]["test_samples"] = samples
 
-            table_5_performance.at[
-                (architecture, horizon, frequency, direction), "F1-score"
-            ] = stats["f1"][1]
-            table_5_performance.at[
-                (architecture, horizon, frequency, direction), "AUC"
-            ] = stats["auc"]
+                    valid_loss, best_thr, valid_stats = evaluate(
+                        model,
+                        class_weight,
+                        data_loader["valid"],
+                        device,
+                        samples=samples,
+                    )
 
-            single_model_result["f1"].append(stats["f1"][1])
-            single_model_result["auc"].append(stats["auc"])
+                    distances = []
+                    family_flags = []
+                    own_company_flags = []
+                    for data, _ in test_loader:
+                        (
+                            _,
+                            _,
+                            batch_distances,
+                            batch_family_flags,
+                            batch_own_company_flags,
+                            _,
+                        ) = data
+                        distances.append(batch_distances.numpy())
+                        family_flags.append(batch_family_flags.numpy())
+                        own_company_flags.append(batch_own_company_flags.numpy())
+                    distances = np.hstack(distances)
+                    family_flags = np.hstack(family_flags)
+                    own_company_flags = np.hstack(own_company_flags)
 
-            predictions = pd.DataFrame(
-                [
-                    own_company_flags,
-                    family_flags,
-                    distances,
-                    stats["predicted_labels"],
-                    stats["labels"].numpy(),
-                    stats["predictions"].numpy(),
-                ],
-                index=[
-                    "own_company_flag",
-                    "family_flag",
-                    "distance",
-                    "prediction",
-                    "label",
-                    "score",
-                ],
-            ).T
+                    _, _, stats = evaluate(
+                        model, class_weight, test_loader, device, best_thr=best_thr
+                    )
 
-            predictions["best_thr"] = np.exp(best_thr)
-            predictions["dataset"] = f"{horizon}_{frequency}_{direction}"
-            predictions["architecture"] = architecture
-            predictions["dataset_seed"] = args["data_split_seed"]
-            predictions["seed"] = args["seed"]
-            prediction_list.append(predictions)
+                    table_5_performance.at[
+                        (architecture, horizon, frequency, direction), "F1-score"
+                    ] = stats["f1"][1]
+                    table_5_performance.at[
+                        (architecture, horizon, frequency, direction), "AUC"
+                    ] = stats["auc"]
 
-            non_own_companies = evaluate_predictions(
-                predictions[predictions.own_company_flag == 0]
-            )
-            table_8_non_own_securities.at[
-                (architecture, horizon, frequency, direction), "F1-score"
-            ] = non_own_companies.f1
-            table_8_non_own_securities.at[
-                (architecture, horizon, frequency, direction), "AUC"
-            ] = non_own_companies.auc
+                    single_model_result[i]["f1"].append(stats["f1"][1])
+                    single_model_result[i]["auc"].append(stats["auc"])
 
-            single_model_result["non_own_f1"].append(non_own_companies.f1)
-            single_model_result["non_own_auc"].append(non_own_companies.auc)
+                    predictions = pd.DataFrame(
+                        [
+                            own_company_flags,
+                            family_flags,
+                            distances,
+                            stats["predicted_labels"],
+                            stats["labels"].numpy(),
+                            stats["predictions"].numpy(),
+                        ],
+                        index=[
+                            "own_company_flag",
+                            "family_flag",
+                            "distance",
+                            "prediction",
+                            "label",
+                            "score",
+                        ],
+                    ).T
 
-            insiders_non_own_companies = evaluate_predictions(
-                predictions[
-                    (predictions.own_company_flag == 0) & (predictions.family_flag == 0)
-                ]
-            )
-            table_9_non_own_securities_self_trading.at[
-                (architecture, horizon, frequency, direction), "F1-score"
-            ] = insiders_non_own_companies.f1
-            table_9_non_own_securities_self_trading.at[
-                (architecture, horizon, frequency, direction), "AUC"
-            ] = insiders_non_own_companies.auc
+                    predictions["best_thr"] = np.exp(best_thr)
+                    predictions["dataset"] = f"{horizon}_{frequency}_{direction}"
+                    predictions["architecture"] = architecture
+                    predictions["dataset_seed"] = args["data_split_seed"]
+                    predictions["seed"] = args["seed"]
+                    prediction_list.append(predictions)
 
-            single_model_result["insiders_non_own_f1"].append(non_own_companies.f1)
-            single_model_result["insiders_non_own_auc"].append(non_own_companies.auc)
+                    non_own_companies = evaluate_predictions(
+                        predictions[predictions.own_company_flag == 0]
+                    )
+                    table_8_non_own_securities.at[
+                        (architecture, horizon, frequency, direction), "F1-score"
+                    ] = non_own_companies.f1
+                    table_8_non_own_securities.at[
+                        (architecture, horizon, frequency, direction), "AUC"
+                    ] = non_own_companies.auc
 
-        keys = [*single_model_result.keys()]
-        for key in keys:
-            if key != "seeds":
-                std = stdev(single_model_result[key])
-                single_model_result[key] = mean(single_model_result[key])
-                single_model_result[key + "_std"] = std
+                    single_model_result[i]["non_own_f1"].append(non_own_companies.f1)
+                    single_model_result[i]["non_own_auc"].append(non_own_companies.auc)
+
+                    insiders_non_own_companies = evaluate_predictions(
+                        predictions[
+                            (predictions.own_company_flag == 0)
+                            & (predictions.family_flag == 0)
+                        ]
+                    )
+                    table_9_non_own_securities_self_trading.at[
+                        (architecture, horizon, frequency, direction), "F1-score"
+                    ] = insiders_non_own_companies.f1
+                    table_9_non_own_securities_self_trading.at[
+                        (architecture, horizon, frequency, direction), "AUC"
+                    ] = insiders_non_own_companies.auc
+
+                    single_model_result[i]["insiders_non_own_f1"].append(
+                        non_own_companies.f1
+                    )
+                    single_model_result[i]["insiders_non_own_auc"].append(
+                        non_own_companies.auc
+                    )
+
+        if is_variational_model(architecture):
+            for i in range(len(single_model_result)):
+                keys = [*single_model_result[i].keys()]
+                for key in keys:
+                    if key not in ["seeds", "test_samples"]:
+                        std = stdev(single_model_result[i][key])
+                        single_model_result[i][key] = mean(single_model_result[i][key])
+                        single_model_result[i][key + "_std"] = std
+
+        else:
+            keys = [*single_model_result.keys()]
+            for key in keys:
+                if key != "seeds":
+                    std = stdev(single_model_result[key])
+                    single_model_result[key] = mean(single_model_result[key])
+                    single_model_result[key + "_std"] = std
 
         results_folder_path = (
             Path(results_folder)
             / path
             / name
-            / f"{architecture}_{horizon}_{frequency}_{direction}"
+            / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
         )
         os.makedirs(results_folder_path, exist_ok=True)
 
@@ -570,87 +663,87 @@ def main(
         combined_predictions.architecture == "gat"
     ]
 
-    # Performances for samples with different distances between the traded and company
-    table_10 = pd.DataFrame(
-        index=pd.MultiIndex.from_product([["insider", "family"], range(4)])
-    )
+    if create_tables:
 
-    for family_flag, investor_type in enumerate(["insider", "family"]):
-        for distance in range(5):
-            if family_flag:
-                if distance == 1:
-                    continue
-                elif distance > 1:
-                    adj_distance = distance - 1
+        # Performances for samples with different distances between the traded and company
+        table_10 = pd.DataFrame(
+            index=pd.MultiIndex.from_product([["insider", "family"], range(4)])
+        )
+
+        for family_flag, investor_type in enumerate(["insider", "family"]):
+            for distance in range(5):
+                if family_flag:
+                    if distance == 1:
+                        continue
+                    elif distance > 1:
+                        adj_distance = distance - 1
+                    else:
+                        adj_distance = distance
                 else:
-                    adj_distance = distance
-            else:
-                if distance < 4:
-                    adj_distance = distance
-                else:
-                    continue
-            distance_perofmance = evaluate_predictions(
-                combined_predictions[
-                    (combined_predictions.distance == distance)
-                    & (combined_predictions.family_flag == family_flag)
-                ]
-            )
-            table_10.at[(investor_type, adj_distance), "F1-score"] = (
-                distance_perofmance.f1
-            )
-            table_10.at[(investor_type, adj_distance), "AUC"] = distance_perofmance.auc
+                    if distance < 4:
+                        adj_distance = distance
+                    else:
+                        continue
+                distance_perofmance = evaluate_predictions(
+                    combined_predictions[
+                        (combined_predictions.distance == distance)
+                        & (combined_predictions.family_flag == family_flag)
+                    ]
+                )
+                table_10.at[(investor_type, adj_distance), "F1-score"] = (
+                    distance_perofmance.f1
+                )
+                table_10.at[(investor_type, adj_distance), "AUC"] = distance_perofmance.auc
 
-    table_5_performance = (
-        table_5_performance.round(2)
-        .unstack([1, 2, 3])
-        .stack(0, future_stack=True)
-        .sort_index(ascending=[True, False])
-    )
-    print("TABLE 5:\n", table_5_performance)
+        table_5_performance = (
+            table_5_performance.round(2)
+            .unstack([1, 2, 3])
+            .stack(0, future_stack=True)
+            .sort_index(ascending=[True, False])
+        )
+        print("TABLE 5:\n", table_5_performance)
 
-    table_8_non_own_securities = (
-        table_8_non_own_securities.round(2)
-        .unstack([1, 2, 3])
-        .stack(0, future_stack=True)
-        .sort_index(ascending=[True, False])
-    )
-    print("TABLE 8:\n", table_8_non_own_securities)
+        table_8_non_own_securities = (
+            table_8_non_own_securities.round(2)
+            .unstack([1, 2, 3])
+            .stack(0, future_stack=True)
+            .sort_index(ascending=[True, False])
+        )
+        print("TABLE 8:\n", table_8_non_own_securities)
 
-    table_9_non_own_securities_self_trading = (
-        table_9_non_own_securities_self_trading.round(2)
-        .unstack([1, 2, 3])
-        .stack(0, future_stack=True)
-        .sort_index(ascending=[True, False])
-    )
-    print("TABLE 9:\n", table_9_non_own_securities_self_trading)
+        table_9_non_own_securities_self_trading = (
+            table_9_non_own_securities_self_trading.round(2)
+            .unstack([1, 2, 3])
+            .stack(0, future_stack=True)
+            .sort_index(ascending=[True, False])
+        )
+        print("TABLE 9:\n", table_9_non_own_securities_self_trading)
 
-    table_10 = (
-        table_10.round(2)
-        .unstack(1)
-        .stack(0, future_stack=True)
-        .sort_index(ascending=[False, False])
-    )
-    print("TABLE 10:\n", table_10)
+        table_10 = (
+            table_10.round(2)
+            .unstack(1)
+            .stack(0, future_stack=True)
+            .sort_index(ascending=[False, False])
+        )
+        print("TABLE 10:\n", table_10)
 
-    results = {
-        "table_5": table_5_performance,
-        "table_8": table_8_non_own_securities,
-        "table_9": table_9_non_own_securities_self_trading,
-        "table_10": table_10,
-    }
+        results = {
+            "table_5": table_5_performance,
+            "table_8": table_8_non_own_securities,
+            "table_9": table_9_non_own_securities_self_trading,
+            "table_10": table_10,
+        }
 
-    if results_folder is not None:
-        results_folder_path = Path(results_folder) / path / name
-        os.makedirs(results_folder_path, exist_ok=True)
+        if results_folder is not None:
+            results_folder_path = Path(results_folder) / path / name
+            os.makedirs(results_folder_path, exist_ok=True)
 
-        with open(results_folder_path / ".gitignore", "w") as f:
-            f.write("*\n")
+            with open(results_folder_path / ".gitignore", "w") as f:
+                f.write("*\n")
 
-        for name, result in results.items():
-            result.to_csv(results_folder_path / (name + ".csv"))
+            for name, result in results.items():
+                result.to_csv(results_folder_path / (name + ".csv"))
 
-    if return_results:
-        return results
 
 
 if __name__ == "__main__":

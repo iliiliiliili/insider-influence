@@ -333,7 +333,7 @@ def main(root="./results", show_inclusion=True):
             if params[i] == "s":
                 samples = int(params[i + 1])
                 i += 1
-            if params[i] in ["seed", "seeds"]:
+            elif params[i] in ["seed", "seeds"]:
                 flags.append(("seed", params[i + 1]))
                 i += 1
             elif params[i] == "b":
@@ -377,7 +377,7 @@ def main(root="./results", show_inclusion=True):
                 
             for d in data:
                 single_result = SingleResult(
-                    samples=d["samples"] if "samples" in d else -1,
+                    samples=d["test_samples"] if "test_samples" in d else -1,
                     batch=d["batch"] if "batch" in d else -1,
                     f1=d["f1"],
                     f1_std=d["f1_std"] if "f1_std" in d else 0,

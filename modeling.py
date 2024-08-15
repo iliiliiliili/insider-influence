@@ -37,17 +37,16 @@ def run_experiments(experiments, devices, processes_per_device):
     print("Done")
 
 
-def seeds(networks="gat", devices=8, processes_per_device=3):
+def vnn(networks="vgcn", devices=8, processes_per_device=3):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
 
     experiments = []
 
-    for seed in range(20, 50):
-        for data_seed in range(20, 50):
-            experiments.append((["train", f"seeds/{seed}_{data_seed}", networks], {"seed":[seed, data_seed]}))
-    
+    for samples in range(2, 26):
+        experiments.append((["train", f"n", networks], {"train_samples": samples}))
+
     run_experiments(experiments, devices, processes_per_device)
         
 

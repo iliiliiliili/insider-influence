@@ -213,9 +213,9 @@ class AnonymizedInfluenceDataSet(Dataset):
         identity = np.identity(self.n_neighbors, dtype=int)
         graphs += identity
         graphs[graphs != 0] = 1.0
-        if self.model == "gat":
+        if "gat" in self.model:
             graphs = graphs.astype(np.dtype("B"))
-        elif self.model == "gcn":
+        elif "gcn" in self.model:
             # normalized graph laplacian for GCN: D^{-1/2}AD^{-1/2}
             graphs = graphs.astype(float)
             for i in range(len(graphs)):
