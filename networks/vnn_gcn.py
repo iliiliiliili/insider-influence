@@ -19,8 +19,11 @@ class VariationalBatchGCN(nn.Module):
         instance_normalization=True,
         FIX_GAUSSIAN=None,
         INIT_WEIGHTS="usual",
+        GLOBAL_STD=0,
         activation_mode="mean",
+        batch_norm_mode="mean",
         global_std_mode="none",
+        use_batch_norm=False,
         samples=4,
         test_samples=4,
     ):
@@ -31,6 +34,7 @@ class VariationalBatchGCN(nn.Module):
 
         VariationalBase.FIX_GAUSSIAN = FIX_GAUSSIAN
         VariationalBase.INIT_WEIGHTS = INIT_WEIGHTS
+        VariationalBase.GLOBAL_STD = GLOBAL_STD
 
         if VariationalBase.FIX_GAUSSIAN is not None:
             print("FIX_GAUSSIAN", VariationalBase.FIX_GAUSSIAN)
@@ -64,7 +68,9 @@ class VariationalBatchGCN(nn.Module):
                     n_units[i + 1],
                     activation=activation,
                     activation_mode=activation_mode,
+                    batch_norm_mode=batch_norm_mode,
                     global_std_mode=global_std_mode,
+                    use_batch_norm=use_batch_norm,
                 )
             )
 

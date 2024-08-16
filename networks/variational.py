@@ -17,6 +17,17 @@ class VariationalBase(nn.Module):
             "std+end",
             "mean+std+end",
     ]
+    ALL_BATCH_NORM_MODES = [
+            "mean",
+            "std",
+            "mean+std",
+            "end",
+            "mean+end",
+            "std+end",
+            "mean+std+end",
+    ]
+    ALL_GLOBAL_STD_MODES=["none", "replace", "multiply"]
+
 
     def __init__(self) -> None:
         super().__init__()

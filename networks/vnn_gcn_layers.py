@@ -53,6 +53,8 @@ class VariationalBatchGraphConvolution(VariationalBase):
         bias=True,
         activation_mode="mean",
         global_std_mode="none",
+        batch_norm_mode="mean",
+        use_batch_norm=False,
     ) -> None:
         super().__init__()
 
@@ -78,7 +80,7 @@ class VariationalBatchGraphConvolution(VariationalBase):
             None,
             activation=activation,
             activation_mode=activation_mode,
-            use_batch_norm=False,
-            batch_norm_mode=None,
+            use_batch_norm=use_batch_norm,
+            batch_norm_mode=batch_norm_mode,
             global_std_mode=global_std_mode,
         )
