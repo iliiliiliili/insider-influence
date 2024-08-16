@@ -7,13 +7,18 @@ import json
 from tabulate import tabulate, SEPARATING_LINE
 import datetime
 import simple_colors as colors
+from statistics import mean
 
-HORIZON_FLAGS = ["Lead-lag", "Simultaneous"]
-FREQUENCY_FLAGS = ["D", "W"]
-DIRECTION_FLAGS = ["Buy", "Sell"]
-MODEL_TYPE_FLAGS = ["baselines", "vnn", "original"]
+HORIZON_FLAGS = ["Lead-lag", "Simultaneous", "h_mean"]
+FREQUENCY_FLAGS = ["D", "W", "f_mean"]
+DIRECTION_FLAGS = ["Buy", "Sell", "d_mean"]
+MODEL_TYPE_FLAGS = ["baselines", "vnn", "vnn_gat", "vnn_gcn", "original"]
 
-EXPERIMENTS_PER_GROUP = 20
+EXPERIMENTS_PER_GROUP = 10
+
+
+def is_mean_flag(flag):
+    return flag in ["h_mean", "f_mean", "d_mean"]
 
 
 @dataclass
@@ -102,7 +107,64 @@ def group_experiments(experiments: List[Experiment]):
     return result
 
 
-def show_inclusion_table(experiments: List[Experiment], show_empty=True):
+def create_mean_results(experiments: List[Experiment]):
+
+    result = {}
+
+    def is_dataset_flag(flag):
+        return (
+            (flag in HORIZON_FLAGS)
+            or (flag in FREQUENCY_FLAGS)
+            or (flag in DIRECTION_FLAGS)
+        )
+
+    def mean_of_results(results: List[SingleResult]):
+        return SingleResult(
+            results[0].samples,
+            results[0].batch,
+            mean([r.f1 for r in results]),
+            mean([r.f1_std for r in results]),
+            mean([r.auc for r in results]),
+            mean([r.non_own_f1 for r in results]),
+            mean([r.non_own_auc for r in results]),
+            mean([r.insiders_non_own_f1 for r in results]),
+            mean([r.insiders_non_own_auc for r in results]),
+        )
+
+    for experiment in experiments:
+        sorted_flags = sorted([f for f in experiment.flags if not is_dataset_flag(f)])
+        combined_flags = "_".join(sorted_flags) + f"{experiment.network_type}_{experiment.samples}_{experiment.batch}"
+
+        if combined_flags not in result:
+            result[combined_flags] = []
+
+        result[combined_flags].append(experiment)
+
+    mean_set = []
+
+    for experiment_set in result.values():
+        mean_experiment = Experiment(
+            experiment_set[0].network_type,
+            experiment_set[0].samples,
+            experiment_set[0].batch,
+            [*experiment_set[0].flags, "h_mean", "f_mean", "d_mean"],
+            [
+                mean_of_results([r.results[i] for r in experiment_set])
+                for i in range(len(experiment_set[0].results))
+            ],
+            min(*[a.age_days for a in experiment_set]) if len(experiment_set) > 1 else experiment_set[0].age_days,
+        )
+
+        mean_set.append(mean_experiment)
+
+    return mean_set
+
+
+def show_inclusion_table(
+    experiments: List[Experiment], exlcude_model_types=[], show_empty=True
+):
+    
+    experiments = experiments + create_mean_results(experiments)
 
     extra_flags = set()
     value_flags = set()
@@ -177,7 +239,21 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
     for horizon in HORIZON_FLAGS:
         for frequency in FREQUENCY_FLAGS:
             for direction in DIRECTION_FLAGS:
+                if (
+                    (is_mean_flag(horizon))
+                    or (is_mean_flag(frequency))
+                    or (is_mean_flag(direction))
+                ):
+                    if not (
+                        (is_mean_flag(horizon))
+                        and (is_mean_flag(frequency))
+                        and (is_mean_flag(direction))
+                    ):
+                        continue
+
                 for model_type in MODEL_TYPE_FLAGS:
+                    if model_type in exlcude_model_types:
+                        continue
 
                     experiments_exist = False
 
@@ -226,13 +302,20 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
                                 return "+" if f in experiment.flags else ""
 
                         is_best_in_subset = False
-                        
+
                         if i == 0:
                             is_best_in_subset = True
                             for compare_model_type in MODEL_TYPE_FLAGS:
-                                if model_type != compare_model_type:
-                                    for compare_experiment in groups[horizon][frequency][direction][compare_model_type]:
-                                        if compare_experiment.best_result().f1 > best_result.f1:
+                                if (model_type != compare_model_type) and (
+                                    compare_model_type not in exlcude_model_types
+                                ):
+                                    for compare_experiment in groups[horizon][
+                                        frequency
+                                    ][direction][compare_model_type]:
+                                        if (
+                                            compare_experiment.best_result().f1
+                                            > best_result.f1
+                                        ):
                                             is_best_in_subset = False
 
                         line = [
@@ -241,8 +324,14 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
                             direction,
                             model_type,
                             experiment.network_type,
-                            f"{best_result.f1:.2f}" + ("#" if i == 0 else "") + ("##" if is_best_in_subset else ""),
-                            f"{best_result.f1_std:.3f}" if best_result.f1_std != 0 else "",
+                            f"{best_result.f1:.3f}"
+                            + ("#" if i == 0 else "")
+                            + ("##" if is_best_in_subset else ""),
+                            (
+                                f"{best_result.f1_std:.3f}"
+                                if best_result.f1_std != 0
+                                else ""
+                            ),
                             f"{best_result.auc:.2f}",
                             f"{best_result.non_own_f1:.2f}",
                             f"{best_result.non_own_auc:.2f}",
@@ -297,7 +386,11 @@ def show_inclusion_table(experiments: List[Experiment], show_empty=True):
         print(raw_tab, file=f)
 
 
-def main(root="./results", show_inclusion=True):
+def main(root="./results", show_inclusion=True, exlcude_model_types=[]):
+
+    if not isinstance(exlcude_model_types, list):
+        exlcude_model_types = [exlcude_model_types]
+
     subdirs = os.walk(root)
 
     all_result_files = []
@@ -317,9 +410,7 @@ def main(root="./results", show_inclusion=True):
 
         groups = subdir.replace(root + "/", "").split("/")
         network_group = groups.pop()
-        network_type, *params = re.findall(
-            r"[a-zA-Z-]+|\d+", network_group
-        )
+        network_type, *params = re.findall(r"[a-zA-Z-]+|\d+", network_group)
         samples = None
         batch = None
         flags = []
@@ -374,7 +465,7 @@ def main(root="./results", show_inclusion=True):
 
             if not isinstance(data, list):
                 data = [data]
-                
+
             for d in data:
                 single_result = SingleResult(
                     samples=d["test_samples"] if "test_samples" in d else -1,
@@ -405,7 +496,7 @@ def main(root="./results", show_inclusion=True):
         print(exp)
 
     if show_inclusion:
-        show_inclusion_table(all_experiments)
+        show_inclusion_table(all_experiments, exlcude_model_types=exlcude_model_types)
 
 
 if __name__ == "__main__":
