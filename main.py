@@ -30,6 +30,7 @@ from sklearn.metrics import (
 from statistics import stdev, mean
 from fire import Fire
 
+from networks.vnn_gat import VariationalBatchGAT
 from networks.vnn_gcn import VariationalBatchGCN
 
 
@@ -418,6 +419,17 @@ def main(
             train_samples = None
             test_samples = None
 
+        results_folder_path = (
+            Path(results_folder)
+            / path
+            / name
+            / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
+        )
+
+        if os.path.exists(results_folder_path / "result.json"):
+            print(f"Already tested {results_folder_path}")
+            break
+
         for sid, seed in enumerate(seeds):
 
             data_seed = seed
@@ -474,6 +486,13 @@ def main(
                     n_units=n_units,
                     n_heads=n_heads,
                     dropout=args["dropout"],
+                )
+            elif args["model"] == "vgat":
+                n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                model = VariationalBatchGAT(
+                    n_units=n_units,
+                    n_heads=n_heads,
+                    **vnn_kwargs,
                 )
             else:
                 raise NotImplementedError

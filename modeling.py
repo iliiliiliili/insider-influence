@@ -3,6 +3,15 @@ from main import main
 from multiprocessing import Pool
 
 
+def vnn_base_name(vnn_name):
+    if "gat" in vnn_name:
+        return "gat"
+    if "gcn" in vnn_name:
+        return "gcn"
+
+    return vnn_name
+
+
 def run_experiments(experiments, devices, processes_per_device):
 
     experiments_per_device = [0 for _ in devices]
@@ -37,15 +46,16 @@ def run_experiments(experiments, devices, processes_per_device):
     print("Done")
 
 
-def vnn(networks="vgcn", devices=8, processes_per_device=3):
+def vnn(networks="vgat", devices=8, processes_per_device=3):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
 
     experiments = []
 
-    for samples in range(2, 26):
-        experiments.append((["train", f"n", networks], {"train_samples": samples}))
+    for net in networks:
+        for samples in range(2, 10):
+            experiments.append((["train", f"n", net, f"vnn_{vnn_base_name(net)}"], {"train_samples": samples}))
 
     run_experiments(experiments, devices, processes_per_device)
         
