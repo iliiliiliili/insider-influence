@@ -132,7 +132,7 @@ def create_mean_results(experiments: List[Experiment]):
         )
 
     for experiment in experiments:
-        sorted_flags = sorted([f for f in experiment.flags if not is_dataset_flag(f)])
+        sorted_flags = sorted([str(f) for f in experiment.flags if not is_dataset_flag(f)])
         combined_flags = "_".join(sorted_flags) + f"{experiment.network_type}_{experiment.samples}_{experiment.batch}"
 
         if combined_flags not in result:
@@ -418,7 +418,12 @@ def main(root="./results", show_inclusion=True, exlcude_model_types=[]):
 
         i = 0
 
-        params += groups
+        for g in groups:
+            if g in MODEL_TYPE_FLAGS:
+                params.append(g)
+            else:
+                params += re.findall(r"[a-zA-Z-]+|[\d\.]+", g)
+
 
         while i < len(params):
             if params[i] == "s":
@@ -429,6 +434,18 @@ def main(root="./results", show_inclusion=True, exlcude_model_types=[]):
                 i += 1
             elif params[i] == "b":
                 batch = int(params[i + 1])
+                i += 1
+            elif params[i] == "activation":
+                flags.append(("activation", params[i + 1]))
+                i += 1
+            elif params[i] == "gstd-mode":
+                flags.append(("gstd-mode", params[i + 1]))
+                i += 1
+            elif params[i] == "gstd":
+                flags.append(("gstd", params[i + 1]))
+                i += 1
+            elif params[i] in ["iv"]:
+                flags.append(("iv_base", params[i]))
                 i += 1
             elif params[i] in ["xufb", "xnfb"]:
                 iv_type = params[i] + params[i + 1] + params[i + 2] + params[i + 3]

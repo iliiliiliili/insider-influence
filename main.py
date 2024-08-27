@@ -6,6 +6,7 @@ Created on Tue Jul 12 16:06:30 2022
 @author: baltakys
 """
 
+from collections import OrderedDict
 import json
 import os
 from typing import List, Tuple, Union
@@ -355,6 +356,7 @@ def main(
     runs_per_variational_model=5,
     train_samples=1,
     test_samples=[2, 5, 10, 20, 40, 50],
+    init_vnn_from=None,
     **vnn_kwargs,
 ):
     if not isinstance(networks, list):
@@ -505,6 +507,40 @@ def main(
                 / name
                 / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
             )
+
+            if init_vnn_from:
+                print(f"Init vnn weights from {init_vnn_from}")
+                weights = torch.load(Path(init_vnn_from + f"_{horizon}_{frequency}_{direction}_seed_{seed}") / "checkpoint.pt", weights_only=True)
+                weights = OrderedDict(
+                    [
+                        [k, v.to(device)]
+                        for k, v in weights.items()
+                    ]
+                )
+
+                def pair_parameter(name):
+                        return (name, name.replace("means.0.", "").replace("means.", ""))
+
+                paired_parameters = [
+                    pair_parameter(a)
+                    for a in model.state_dict().keys()
+                    if "means" in a
+                ]
+                unpaired_parameters = [
+                    a
+                    for a in model.state_dict().keys()
+                    if ("means" not in a) and ("stds" not in a)
+                ]
+
+                final_params = {}
+
+                for a, b in paired_parameters:
+                    final_params[a] = weights[b]
+
+                for a in unpaired_parameters:
+                    final_params[a] = weights[a]
+
+                model.load_state_dict(final_params, strict=False)
 
             if train:
                 os.makedirs(results_folder, exist_ok=True)
