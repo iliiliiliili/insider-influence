@@ -357,6 +357,7 @@ def main(
     train_samples=1,
     test_samples=[2, 5, 10, 20, 40, 50],
     init_vnn_from=None,
+    init_vnn_from_original=False,
     **vnn_kwargs,
 ):
     if not isinstance(networks, list):
@@ -510,7 +511,14 @@ def main(
 
             if init_vnn_from:
                 print(f"Init vnn weights from {init_vnn_from}")
-                weights = torch.load(Path(init_vnn_from + f"_{horizon}_{frequency}_{direction}_seed_{seed}") / "checkpoint.pt", weights_only=True)
+
+                weights_path = (
+                    Path(init_vnn_from + f"_{horizon}_{frequency}_{direction}") / "checkpoint.pt"
+                ) if init_vnn_from_original else (
+                    Path(init_vnn_from + f"_{horizon}_{frequency}_{direction}_seed_{seed}") / "checkpoint.pt"
+                )
+
+                weights = torch.load(weights_path, weights_only=True)
                 weights = OrderedDict(
                     [
                         [k, v.to(device)]
