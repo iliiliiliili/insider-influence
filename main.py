@@ -334,6 +334,7 @@ def get_parameters(
     seed: Union[int, List[int]],
     name: str,
     path: str,
+    dataset: str,
 ):
 
     with open("./models/gat_gcn_parameters.json", "r") as file:
@@ -363,7 +364,7 @@ def get_parameters(
                 f"{architecture_for_parameters}_{horizon}_{frequency}_{direction}"
             ]["batch"]
         ),
-        "public_file_dir": f"./data/{horizon}_{frequency}_{direction}/",
+        "public_file_dir": f"./{dataset}/{horizon}_{frequency}_{direction}/",
         "shuffle": False,
         "train_ratio": 75,
         "valid_ratio": 12.5,
@@ -402,6 +403,7 @@ def main(
     ignore_existing=False,
     test_with_uncertainty=False,
     draw_uncertainty_graphs=False,
+    dataset_folder="data",
     **vnn_kwargs,
 ):
     if not isinstance(networks, list):
@@ -493,7 +495,7 @@ def main(
             )
 
             args = get_parameters(
-                horizon, frequency, direction, architecture, seed, name, path
+                horizon, frequency, direction, architecture, seed, name, path, dataset_folder
             )
 
             np.random.seed(data_seed)

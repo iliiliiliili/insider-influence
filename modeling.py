@@ -179,5 +179,126 @@ def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3):
     run_experiments(experiments, devices, processes_per_device)
 
 
+def base_experiment_all(
+    dataset_suffix="",
+    classical_networks=["gcn", "gat"],
+    vnn_networks=["vgcn", "vgat"],
+    devices=8,
+    processes_per_device=3,
+):
+
+    if not isinstance(devices, list):
+        devices = [f"cuda:{d}" for d in range(devices)]
+
+    experiments = []
+
+    for net in classical_networks:
+        experiments.append(
+            (
+                ["train", ".", net, f"baselines"],
+                {
+                    "dataset_folder": f"data{dataset_suffix}",
+                    "results_folder": f"results{dataset_suffix}",
+                    "models_folder": f"models{dataset_suffix}",
+                },
+            )
+        )
+
+    for net in vnn_networks:
+        for samples in range(2, 10):
+            for activation_mode in VariationalBase.ALL_ACTIVATION_MODES:
+                for use_batch_norm in [False, True]:
+                    for global_std_mode in VariationalBase.ALL_GLOBAL_STD_MODES:
+
+                        if global_std_mode == "none":
+                            gstds = [0]
+                        else:
+                            gstds = [0, 0.01, 0.05, 0.1, 0.2]
+
+                        for gstd in gstds:
+
+                            name = (
+                                f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
+                                + ("" if global_std_mode == "none" else f"/gstd_{gstd}")
+                            )
+
+                            experiments.append(
+                                (
+                                    ["train", name, net, f"vnn_{vnn_base_name(net)}"],
+                                    {
+                                        "train_samples": samples,
+                                        "batch_norm_mode": activation_mode,
+                                        "activation_mode": activation_mode,
+                                        "use_batch_norm": use_batch_norm,
+                                        "global_std_mode": global_std_mode,
+                                        "GLOBAL_STD": gstd,
+                                        "dataset_folder": f"data{dataset_suffix}",
+                                        "results_folder": f"results{dataset_suffix}",
+                                        "models_folder": f"models{dataset_suffix}",
+                                    },
+                                )
+                            )
+
+    for net in vnn_networks:
+        for samples in range(2, 10):
+            for activation_mode in VariationalBase.ALL_ACTIVATION_MODES:
+                for use_batch_norm in [True, False]:
+                    for global_std_mode in VariationalBase.ALL_GLOBAL_STD_MODES:
+                        for init_from in ["baselines", "original"]:
+                            for init_vnn_name, init_vnn_weights in [
+                                ("usual", "usual"),
+                                ("f0x3", "fill:stds:0.001:0.001"),
+                                ("f0x4", "fill:stds:0.0001:0.0001"),
+                                ("xu0b0x2", "xavier_uniform0b:stds:0.01:0.001"),
+                                ("xufb0x2", "xavier_uniform_fb:stds:0.01:0.001"),
+                                ("xnfb0x2", "xavier_normal_fb:stds:0.01:0.001"),
+                                ("xn0b0x2", "xavier_uniform_0b:stds:0.01:0.001"),
+                            ]:
+
+                                if global_std_mode == "none":
+                                    gstds = [0]
+                                else:
+                                    gstds = [0, 0.01, 0.05, 0.1, 0.2]
+
+                                for gstd in gstds:
+
+                                    name = (
+                                        f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
+                                        + (
+                                            ""
+                                            if global_std_mode == "none"
+                                            else f"/gstd_{gstd}"
+                                        )
+                                    )
+
+                                    experiments.append(
+                                        (
+                                            [
+                                                "train",
+                                                name,
+                                                net,
+                                                f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                            ],
+                                            {
+                                                "train_samples": samples,
+                                                "batch_norm_mode": activation_mode,
+                                                "activation_mode": activation_mode,
+                                                "use_batch_norm": use_batch_norm,
+                                                "global_std_mode": global_std_mode,
+                                                "GLOBAL_STD": gstd,
+                                                "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                "INIT_WEIGHTS": init_vnn_weights,
+                                                "init_vnn_from_original": init_from
+                                                == "original",
+                                                "dataset_folder": f"data{dataset_suffix}",
+                                                "results_folder": f"results{dataset_suffix}",
+                                                "models_folder": f"models{dataset_suffix}",
+                                            },
+                                        )
+                                    )
+
+    run_experiments(experiments, devices, processes_per_device)
+
+
 if __name__ == "__main__":
     Fire()
