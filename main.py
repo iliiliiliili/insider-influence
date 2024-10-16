@@ -193,34 +193,8 @@ def train_model(
     return model
 
 
-def evaluate(model, class_weight, loader, device, best_thr=None, samples=None):
-
-    extra_forward_args = {}
-
-    if samples is not None:
-        extra_forward_args["samples"] = samples
-
-    model.eval()
-    total = 0.0
-    loss = 0.0
-    y_true, y_pred, y_score = [], [], []
-    class_weight = class_weight.to(device)
-
-    for _, (data, target) in enumerate(loader):
-        # graph, features, labels, vertices = batch
-        bs = data[0].size(0)
-
-        target = target.to(device)  # labels
-        data = [tensor.to(device) for tensor in data]
-
-        output = model(data[:2], data[-1], **extra_forward_args)
-        loss_batch = F.nll_loss(output, target, class_weight)
-        loss += bs * loss_batch.item()
-        y_true += target.data.tolist()
-        y_pred += output.max(1)[1].data.tolist()
-        y_score += output[:, 1].data.tolist()
-        total += bs
-
+def calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr):
+    
     if best_thr is None:
         precs, recs, thrs = precision_recall_curve(y_true, y_score)
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -257,6 +231,73 @@ def evaluate(model, class_weight, loader, device, best_thr=None, samples=None):
             "predicted_labels": y_pred_thr,
         },
     )
+
+
+def evaluate(model, class_weight, loader, device, best_thr=None, samples=None):
+
+    extra_forward_args = {}
+
+    if samples is not None:
+        extra_forward_args["samples"] = samples
+
+    model.eval()
+    total = 0.0
+    loss = 0.0
+    y_true, y_pred, y_score = [], [], []
+    class_weight = class_weight.to(device)
+
+    for _, (data, target) in enumerate(loader):
+        # graph, features, labels, vertices = batch
+        bs = data[0].size(0)
+
+        target = target.to(device)  # labels
+        data = [tensor.to(device) for tensor in data]
+
+        output = model(data[:2], data[-1], **extra_forward_args)
+        loss_batch = F.nll_loss(output, target, class_weight)
+        loss += bs * loss_batch.item()
+        y_true += target.data.tolist()
+        y_pred += output.max(1)[1].data.tolist()
+        y_score += output[:, 1].data.tolist()
+        total += bs
+
+    return calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
+
+
+def evaluate_with_uncertainty(model, class_weight, loader, device, best_thr=None, samples=None, draw_uncertainty_graphs=False):
+
+    extra_forward_args = {}
+
+    if samples is not None:
+        extra_forward_args["samples"] = samples
+
+    model.eval()
+    total = 0.0
+    loss = 0.0
+    y_true, y_pred, y_score = [], [], []
+    all_uncertainty_scores = []
+    class_weight = class_weight.to(device)
+
+    for _, (data, target) in enumerate(loader):
+        # graph, features, labels, vertices = batch
+        bs = data[0].size(0)
+
+        target = target.to(device)  # labels
+        data = [tensor.to(device) for tensor in data]
+
+        output, uncertainty = model(data[:2], data[-1], return_uncertainty=True, **extra_forward_args)
+        uncertainty_scores = (uncertainty / output.abs()).mean(axis=-1)
+        loss_batch = F.nll_loss(output, target, class_weight)
+        loss += bs * loss_batch.item()
+        y_true += target.data.tolist()
+        y_pred += output.max(1)[1].data.tolist()
+        y_score += output[:, 1].data.tolist()
+        all_uncertainty_scores += uncertainty_scores.data.tolist()
+        total += bs
+
+    result = calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
+
+    return *result, all_uncertainty_scores
 
 
 def evaluate_predictions(df):
@@ -358,6 +399,9 @@ def main(
     test_samples=[2, 5, 10, 20, 40, 50],
     init_vnn_from=None,
     init_vnn_from_original=False,
+    ignore_existing=False,
+    test_with_uncertainty=False,
+    draw_uncertainty_graphs=False,
     **vnn_kwargs,
 ):
     if not isinstance(networks, list):
@@ -429,7 +473,7 @@ def main(
             / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
         )
 
-        if os.path.exists(results_folder_path / "result.json"):
+        if (not ignore_existing) and os.path.exists(results_folder_path / "result.json"):
             print(f"Already tested {results_folder_path}")
             break
 
@@ -593,14 +637,24 @@ def main(
 
                     single_model_result[i]["test_samples"] = samples
 
-                    valid_loss, best_thr, valid_stats = evaluate(
-                        model,
-                        class_weight,
-                        data_loader["valid"],
-                        device,
-                        samples=samples,
-                    )
-
+                    if test_with_uncertainty:
+                        valid_loss, best_thr, valid_stats, uncertainty_scores = evaluate_with_uncertainty(
+                            model,
+                            class_weight,
+                            data_loader["valid"],
+                            device,
+                            samples=samples,
+                            draw_uncertainty_graphs=draw_uncertainty_graphs,
+                        )                    
+                    else:
+                        valid_loss, best_thr, valid_stats = evaluate(
+                            model,
+                            class_weight,
+                            data_loader["valid"],
+                            device,
+                            samples=samples,
+                        )
+                    
                     distances = []
                     family_flags = []
                     own_company_flags = []
@@ -620,9 +674,14 @@ def main(
                     family_flags = np.hstack(family_flags)
                     own_company_flags = np.hstack(own_company_flags)
 
-                    _, _, stats = evaluate(
-                        model, class_weight, test_loader, device, best_thr=best_thr
-                    )
+                    if test_with_uncertainty:
+                        _, _, stats, uncertainty_scores = evaluate_with_uncertainty(
+                            model, class_weight, test_loader, device, best_thr=best_thr
+                        )
+                    else:
+                        _, _, stats = evaluate(
+                            model, class_weight, test_loader, device, best_thr=best_thr
+                        )
 
                     table_5_performance.at[
                         (architecture, horizon, frequency, direction), "F1-score"

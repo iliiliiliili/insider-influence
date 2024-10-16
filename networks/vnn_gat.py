@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# encoding: utf-8
-# File Name: gat.py
-# Author: Jiezhong Qiu
-# Create Time: 2017/12/18 21:40
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -76,7 +70,7 @@ class VariationalBatchGAT(nn.Module):
                 )
             )
 
-    def forward(self, data, normalized_embedding=None, samples=None):
+    def forward(self, data, normalized_embedding=None, samples=None, return_uncertainty=False):
 
         if samples is None:
             if self.training:
@@ -107,4 +101,7 @@ class VariationalBatchGAT(nn.Module):
             torch.stack(outputs, dim=0), dim=0, unbiased=False
         )
 
-        return result
+        if return_uncertainty:
+            return result, result_var
+        else:
+            return result
