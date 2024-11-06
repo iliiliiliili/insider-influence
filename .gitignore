@@ -3,10 +3,13 @@
 /.mypy_cache
 __pycache__
 /data
+/data-*
 
 .vscode
 !models
 models/*
+models-*
 !models/original
 results
+results-*
 inclusion_table.txt
