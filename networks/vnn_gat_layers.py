@@ -17,6 +17,7 @@ import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 from networks.variational import (
     VariationalBase,
+    MultiOutputVariationalBase,
     init_weights as vnn_init_weights,
 )
 
@@ -57,12 +58,12 @@ class BatchMultiHeadGraphAttention(nn.Module):
         attn = self.softmax(attn)  # bs x n_head x n x n
         output = torch.matmul(attn, h_prime)  # bs x n_head x n x f_out
         if self.bias is not None:
-            return output + self.bias
+            return [output + self.bias, attn]
         else:
-            return output
+            return [output, attn]
 
 
-class VariationalBatchMultiHeadGraphAttention(VariationalBase):
+class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
     def __init__(
         self,
         n_head,

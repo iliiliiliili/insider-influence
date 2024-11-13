@@ -79,6 +79,7 @@ class VariationalBatchGAT(nn.Module):
                 samples = self.test_samples
 
         outputs = []
+        all_attentions = {}
 
         for s in range(samples):
             
@@ -90,7 +91,13 @@ class VariationalBatchGAT(nn.Module):
             x = torch.cat((x, emb), dim=2)
             bs, n = adj.size()[:2]
             for i, gat_layer in enumerate(self.layer_stack):
-                x = gat_layer((x, adj))  # bs x n_head x n x f_out
+                x, attention = gat_layer((x, adj))  # bs x n_head x n x f_out
+
+                if i not in all_attentions:
+                    all_attentions[i] = []
+                
+                all_attentions[i].append(attention)
+
                 if i + 1 == self.n_layer:
                     x = x.mean(dim=1)
                 else:
@@ -102,6 +109,15 @@ class VariationalBatchGAT(nn.Module):
         )
 
         if return_uncertainty:
-            return result, result_var
+
+            attentions = {}
+
+            for key, values in all_attentions.items():
+                att_var, att = torch.var_mean(
+                    torch.stack(values, dim=0), dim=0, unbiased=False
+                )
+                attentions[key] = (att, att_var)
+
+            return result, result_var, attentions
         else:
             return result

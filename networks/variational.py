@@ -184,6 +184,60 @@ class VariationalBase(nn.Module):
         init_weights(self)
 
 
+
+class MultiOutputVariationalBase(VariationalBase):
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, x):
+        means = self.means(x)
+
+        if self.stds:
+            stds = self.stds(x)
+        else:
+            stds = 0
+
+        if self.global_std_mode == "replace":
+            stds = VariationalBase.GLOBAL_STD
+        elif self.global_std_mode == "multiply":
+            stds = [VariationalBase.GLOBAL_STD * s for s in stds]
+
+        if self.LOG_STDS:
+
+            for s in stds:
+                pstds = s
+
+                if isinstance(s, (int, float)):
+                    pstds = torch.tensor(s * 1.0)
+
+                print(
+                    "std%:",
+                    abs(
+                        float(torch.mean(pstds).detach())
+                        / float(torch.mean(means).detach())
+                        * 100
+                    ),
+                    "std:",
+                    float(torch.mean(pstds).detach()),
+                    "mean",
+                    float(torch.mean(means).detach()),
+                )
+
+        if VariationalBase.FIX_GAUSSIAN is None:
+            result = [m + s * torch.normal(0, torch.ones_like(m)) for m, s in zip(means, stds)]
+        else:
+            result = [m + s * VariationalBase.FIX_GAUSSIAN * torch.ones_like(m) for m, s in zip(means, stds)]
+
+        if self.end_batch_norm is not None:
+            result = [self.end_batch_norm(r) for r in result]
+
+        if self.end_activation is not None:
+            result = [self.end_activation(r) for r in result]
+
+        return result
+
+
 class VariationalConvolution(VariationalBase):
     def __init__(
         self,
