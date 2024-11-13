@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Jul 12 16:06:30 2022
-
-@author: baltakys
-"""
-
 from collections import OrderedDict
 import json
 import os
@@ -33,6 +25,7 @@ from fire import Fire
 
 from networks.vnn_gat import VariationalBatchGAT
 from networks.vnn_gcn import VariationalBatchGCN
+from draw import draw_uncertain_attentions
 
 
 def train_model(
@@ -194,7 +187,7 @@ def train_model(
 
 
 def calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr):
-    
+
     if best_thr is None:
         precs, recs, thrs = precision_recall_curve(y_true, y_score)
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -264,7 +257,15 @@ def evaluate(model, class_weight, loader, device, best_thr=None, samples=None):
     return calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
 
 
-def evaluate_with_uncertainty(model, class_weight, loader, device, best_thr=None, samples=None, draw_uncertainty_graphs=False):
+def evaluate_with_uncertainty(
+    model,
+    class_weight,
+    loader,
+    device,
+    best_thr=None,
+    samples=None,
+    draw_uncertainty_graphs=False,
+):
 
     extra_forward_args = {}
 
@@ -285,7 +286,59 @@ def evaluate_with_uncertainty(model, class_weight, loader, device, best_thr=None
         target = target.to(device)  # labels
         data = [tensor.to(device) for tensor in data]
 
-        output, uncertainty = model(data[:2], data[-1], return_uncertainty=True, **extra_forward_args)
+        output, uncertainty = model(
+            data[:2], data[-1], return_uncertainty=True, **extra_forward_args
+        )
+        uncertainty_scores = (uncertainty / output.abs()).mean(axis=-1)
+        loss_batch = F.nll_loss(output, target, class_weight)
+        loss += bs * loss_batch.item()
+        y_true += target.data.tolist()
+        y_pred += output.max(1)[1].data.tolist()
+        y_score += output[:, 1].data.tolist()
+        all_uncertainty_scores += uncertainty_scores.data.tolist()
+        total += bs
+
+    result = calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
+
+    return *result, all_uncertainty_scores
+
+
+def evaluate_with_uncertainty_and_attention(
+    model,
+    class_weight,
+    loader,
+    device,
+    best_thr=None,
+    samples=None,
+    draw_uncertainty_graphs=False,
+    plots_folder_path=None,
+):
+
+    extra_forward_args = {}
+
+    if samples is not None:
+        extra_forward_args["samples"] = samples
+
+    model.eval()
+    total = 0.0
+    loss = 0.0
+    y_true, y_pred, y_score = [], [], []
+    all_uncertainty_scores = []
+    class_weight = class_weight.to(device)
+
+    for _, (data, target) in enumerate(loader):
+        # graph, features, labels, vertices = batch
+        bs = data[0].size(0)
+
+        target = target.to(device)  # labels
+        data = [tensor.to(device) for tensor in data]
+
+        output, uncertainty, attentions = model(
+            data[:2], data[-1], return_uncertainty=True, **extra_forward_args
+        )
+
+        draw_uncertain_attentions(attentions, plots_folder_path)
+
         uncertainty_scores = (uncertainty / output.abs()).mean(axis=-1)
         loss_batch = F.nll_loss(output, target, class_weight)
         loss += bs * loss_batch.item()
@@ -393,6 +446,7 @@ def main(
     device="cuda:0",
     results_folder="results",
     models_folder="models",
+    plots_folder="plots",
     create_tables=False,
     seeds=[1, 2, 6, 5, 10, 40, 43, 46, 50],
     runs_per_variational_model=5,
@@ -475,7 +529,16 @@ def main(
             / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
         )
 
-        if (not ignore_existing) and os.path.exists(results_folder_path / "result.json"):
+        plots_folder_path = (
+            Path(plots_folder)
+            / path
+            / name
+            / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
+        )
+
+        if (not ignore_existing) and os.path.exists(
+            results_folder_path / "result.json"
+        ):
             print(f"Already tested {results_folder_path}")
             break
 
@@ -495,7 +558,14 @@ def main(
             )
 
             args = get_parameters(
-                horizon, frequency, direction, architecture, seed, name, path, dataset_folder
+                horizon,
+                frequency,
+                direction,
+                architecture,
+                seed,
+                name,
+                path,
+                dataset_folder,
             )
 
             np.random.seed(data_seed)
@@ -559,26 +629,28 @@ def main(
                 print(f"Init vnn weights from {init_vnn_from}")
 
                 weights_path = (
-                    Path(init_vnn_from + f"_{horizon}_{frequency}_{direction}") / "checkpoint.pt"
-                ) if init_vnn_from_original else (
-                    Path(init_vnn_from + f"_{horizon}_{frequency}_{direction}_seed_{seed}") / "checkpoint.pt"
+                    (
+                        Path(init_vnn_from + f"_{horizon}_{frequency}_{direction}")
+                        / "checkpoint.pt"
+                    )
+                    if init_vnn_from_original
+                    else (
+                        Path(
+                            init_vnn_from
+                            + f"_{horizon}_{frequency}_{direction}_seed_{seed}"
+                        )
+                        / "checkpoint.pt"
+                    )
                 )
 
                 weights = torch.load(weights_path, weights_only=True)
-                weights = OrderedDict(
-                    [
-                        [k, v.to(device)]
-                        for k, v in weights.items()
-                    ]
-                )
+                weights = OrderedDict([[k, v.to(device)] for k, v in weights.items()])
 
                 def pair_parameter(name):
-                        return (name, name.replace("means.0.", "").replace("means.", ""))
+                    return (name, name.replace("means.0.", "").replace("means.", ""))
 
                 paired_parameters = [
-                    pair_parameter(a)
-                    for a in model.state_dict().keys()
-                    if "means" in a
+                    pair_parameter(a) for a in model.state_dict().keys() if "means" in a
                 ]
                 unpaired_parameters = [
                     a
@@ -640,14 +712,32 @@ def main(
                     single_model_result[i]["test_samples"] = samples
 
                     if test_with_uncertainty:
-                        valid_loss, best_thr, valid_stats, uncertainty_scores = evaluate_with_uncertainty(
-                            model,
-                            class_weight,
-                            data_loader["valid"],
-                            device,
-                            samples=samples,
-                            draw_uncertainty_graphs=draw_uncertainty_graphs,
-                        )                    
+
+                        if architecture in ["vgat"]:
+                            valid_loss, best_thr, valid_stats, uncertainty_scores = (
+                                evaluate_with_uncertainty_and_attention(
+                                    model,
+                                    class_weight,
+                                    data_loader["valid"],
+                                    device,
+                                    samples=samples,
+                                    draw_uncertainty_graphs=draw_uncertainty_graphs,
+                                    plots_folder_path=plots_folder_path,
+                                )
+                            )
+                        else:
+
+                            valid_loss, best_thr, valid_stats, uncertainty_scores = (
+                                evaluate_with_uncertainty(
+                                    model,
+                                    class_weight,
+                                    data_loader["valid"],
+                                    device,
+                                    samples=samples,
+                                    draw_uncertainty_graphs=draw_uncertainty_graphs,
+                                    plots_folder_path=plots_folder_path,
+                                )
+                            )
                     else:
                         valid_loss, best_thr, valid_stats = evaluate(
                             model,
@@ -656,7 +746,7 @@ def main(
                             device,
                             samples=samples,
                         )
-                    
+
                     distances = []
                     family_flags = []
                     own_company_flags = []
@@ -817,7 +907,9 @@ def main(
                 table_10.at[(investor_type, adj_distance), "F1-score"] = (
                     distance_perofmance.f1
                 )
-                table_10.at[(investor_type, adj_distance), "AUC"] = distance_perofmance.auc
+                table_10.at[(investor_type, adj_distance), "AUC"] = (
+                    distance_perofmance.auc
+                )
 
         table_5_performance = (
             table_5_performance.round(2)
@@ -867,7 +959,6 @@ def main(
 
             for name, result in results.items():
                 result.to_csv(results_folder_path / (name + ".csv"))
-
 
 
 if __name__ == "__main__":

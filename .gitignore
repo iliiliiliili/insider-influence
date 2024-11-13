@@ -12,4 +12,6 @@ models-*
 !models/original
 results
 results-*
+plots
+plots-*
 inclusion_table.txt
