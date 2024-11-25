@@ -1,3 +1,4 @@
+from pathlib import Path
 from fire import Fire
 import os
 import re
@@ -9,6 +10,29 @@ import datetime
 import simple_colors as colors
 from statistics import mean
 
+from plotnine import (
+    ggplot,
+    aes,
+    geom_line,
+    geom_point,
+    facet_grid,
+    facet_wrap,
+    scale_y_continuous,
+    geom_hline,
+    position_dodge,
+    geom_errorbar,
+    scale_y_discrete,
+    theme,
+    element_text,
+    ylab,
+    xlab,
+    scale_color_discrete,
+)
+from plotnine.data import economics
+from pandas import Categorical, DataFrame
+from plotnine.scales.limits import ylim
+from plotnine.scales.scale_xy import scale_x_discrete
+
 HORIZON_FLAGS = ["Lead-lag", "Simultaneous", "h_mean"]
 FREQUENCY_FLAGS = ["D", "W", "f_mean"]
 DIRECTION_FLAGS = ["Buy", "Sell", "d_mean"]
@@ -17,6 +41,27 @@ MODEL_TYPE_FLAGS = ["baselines", "vnn_gat", "vnn_gcn", "vnn_gat_ivb", "vnn_gcn_i
 
 def is_mean_flag(flag):
     return flag in ["h_mean", "f_mean", "d_mean"]
+
+
+def transform_model_type_for_plotting(model_type):
+    if model_type in ["vnn_gat"]:
+        return "vgat"
+    if model_type in ["vnn_gcn"]:
+        return "vgcn"
+
+    if model_type in ["vnn_gat_ivb", "vnn_gat_ivo"]:
+        return "ivgat"
+    if model_type in ["vnn_gcn_ivb", "vnn_gcn_ivo"]:
+        return "ivgcn"
+
+    return model_type
+
+
+def transform_subset_name_for_plotting(name):
+    if "_mean" in name:
+        return "Mean"
+
+    return name
 
 
 @dataclass
@@ -230,12 +275,23 @@ def show_inclusion_table(
         "ino f1",
         "ino auc",
         "s",
-        # "batch",
         "ts",
         *extra_flags,
     ]
     table = []
     raw_table = []
+    data_frame = {
+        "horizon": [],
+        "frequency": [],
+        "direction": [],
+        "Model Type": [],
+        "Network": [],
+        "F1": [],
+        "f1 std": [],
+        "auc": [],
+        "s": [],
+        "ts": [],
+    }
 
     def colored_line(color, line):
 
@@ -416,6 +472,17 @@ def show_inclusion_table(
                         ]
                         table.append(colored_line(experiment_color(experiment), line))
                         raw_table.append(line)
+                        
+                        data_frame["horizon"].append(transform_subset_name_for_plotting(horizon))
+                        data_frame["frequency"].append(transform_subset_name_for_plotting(frequency))
+                        data_frame["direction"].append(transform_subset_name_for_plotting(direction))
+                        data_frame["Model Type"].append(transform_model_type_for_plotting(model_type))
+                        data_frame["Network"].append(experiment.network_type)
+                        data_frame["F1"].append(best_result.f1)
+                        data_frame["f1 std"].append(best_result.f1_std)
+                        data_frame["auc"].append(best_result.auc)
+                        data_frame["s"].append(0 if experiment.samples is None else experiment.samples)
+                        data_frame["ts"].append(0 if best_result.samples == -1 else best_result.samples)
 
                     if (not experiments_exist) and show_empty:
 
@@ -456,9 +523,33 @@ def show_inclusion_table(
     print(tab)
     with open("inclusion_table.txt", "w") as f:
         print(raw_tab, file=f)
+    
+    data_frame = DataFrame(data_frame)
+
+    return data_frame
 
 
-def main(root="./results", exlcude_model_types=[], experiments_per_group=10):
+def plot_single_frame(frame, output_file_name, model_type_order):
+
+    plot = (
+        ggplot(frame)
+        + aes(x="F1", y="Model Type")
+        + facet_wrap(["horizon", "frequency", "direction"])
+        + geom_point(
+            aes(color="Network"),
+            size=1.5,
+            # position=position_dodge(width=0.8),
+            # stroke=0.2,
+        )
+        + scale_y_discrete(limits=model_type_order)
+    )
+
+    plot = plot + theme(strip_text_x=element_text(size=5))
+
+    plot.save(str(output_file_name), dpi=600)
+
+
+def main(root="./results", plots_folder="plots", exlcude_model_types=[], experiments_per_group=10):
 
     if not isinstance(exlcude_model_types, list):
         exlcude_model_types = [exlcude_model_types]
@@ -580,7 +671,16 @@ def main(root="./results", exlcude_model_types=[], experiments_per_group=10):
 
         all_experiments.append(experiment)
 
-    show_inclusion_table(all_experiments, exlcude_model_types=exlcude_model_types, experiments_per_group=experiments_per_group)
+    data_frame = show_inclusion_table(all_experiments, exlcude_model_types=exlcude_model_types, experiments_per_group=experiments_per_group)
+
+    # model_type_order = ["original", "ivnn", "vnn", "baselines"]
+    model_type_order = ["original", "ivgat", "vgat", "ivgcn", "vgcn", "baselines"]
+
+    for t in exlcude_model_types:
+        if t in model_type_order:
+            model_type_order.remove(t)
+
+    plot_single_frame(data_frame, Path(plots_folder) / "insider-results.png", model_type_order)
 
 
 if __name__ == "__main__":
