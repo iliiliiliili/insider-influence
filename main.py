@@ -25,7 +25,7 @@ from fire import Fire
 
 from networks.vnn_gat import VariationalBatchGAT
 from networks.vnn_gcn import VariationalBatchGCN
-from draw import draw_uncertain_attentions
+from draw import draw_uncertain_attention_graphs, draw_uncertain_attentions
 
 
 def train_model(
@@ -327,7 +327,7 @@ def evaluate_with_uncertainty_and_attention(
     class_weight = class_weight.to(device)
 
     for _, (data, target) in enumerate(loader):
-        # graph, features, labels, vertices = batch
+        # gjraph, features, labels, vertices = batch
         bs = data[0].size(0)
 
         target = target.to(device)  # labels
@@ -337,7 +337,8 @@ def evaluate_with_uncertainty_and_attention(
             data[:2], data[-1], return_uncertainty=True, **extra_forward_args
         )
 
-        draw_uncertain_attentions(attentions, plots_folder_path)
+        # draw_uncertain_attentions(attentions, plots_folder_path)
+        draw_uncertain_attention_graphs(attentions, data[0], plots_folder_path)
 
         uncertainty_scores = (uncertainty / output.abs()).mean(axis=-1)
         loss_batch = F.nll_loss(output, target, class_weight)

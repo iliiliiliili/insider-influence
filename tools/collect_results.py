@@ -534,7 +534,7 @@ def plot_single_frame(frame, output_file_name, model_type_order):
     plot = (
         ggplot(frame)
         + aes(x="F1", y="Model Type")
-        + facet_wrap(["horizon", "frequency", "direction"])
+        + facet_wrap(["horizon", "frequency", "direction"], ncol=2)
         + geom_point(
             aes(color="Network"),
             size=1.5,
@@ -544,7 +544,7 @@ def plot_single_frame(frame, output_file_name, model_type_order):
         + scale_y_discrete(limits=model_type_order)
     )
 
-    plot = plot + theme(strip_text_x=element_text(size=5))
+    plot = plot + theme(figure_size=(4, 8), strip_text_x=element_text(size=5))
 
     plot.save(str(output_file_name), dpi=600)
 
