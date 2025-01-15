@@ -3,31 +3,95 @@ import torch
 from torch import nn
 
 
+def multi_output_variational_forward(
+    means_module,
+    stds_module,
+    x,
+    global_std_mode,
+    LOG_STDS,
+    FIX_GAUSSIAN,
+    GLOBAL_STD,
+    end_batch_norm,
+    end_activation,
+    split=None,
+):
+    means = means_module(x)
+
+    if split is None:
+        split = [False for _ in range(len(means))]
+
+    if stds_module:
+        stds = stds_module(x)
+    else:
+        stds = 0
+
+    if global_std_mode == "replace":
+        stds = [GLOBAL_STD for _ in range(len(means))]
+    elif global_std_mode == "multiply":
+        stds = [GLOBAL_STD * s for s in stds]
+
+    if LOG_STDS:
+        for s in stds:
+            pstds = s
+
+            if isinstance(s, (int, float)):
+                pstds = torch.tensor(s * 1.0)
+
+            print(
+                "std%:",
+                abs(
+                    float(torch.mean(pstds).detach())
+                    / float(torch.mean(means).detach())
+                    * 100
+                ),
+                "std:",
+                float(torch.mean(pstds).detach()),
+                "mean",
+                float(torch.mean(means).detach()),
+            )
+
+    if FIX_GAUSSIAN is None:
+        result = [
+            (m, s) if spl else m + s * torch.normal(0, torch.ones_like(m)) for m, s, spl in zip(means, stds, split)
+        ]
+    else:
+        result = [
+            (m, s) if spl else m + s * FIX_GAUSSIAN * torch.ones_like(m) for m, s, spl in zip(means, stds, split)
+        ]
+
+    if end_batch_norm is not None:
+        result = [end_batch_norm(r) for r in result]
+
+    if end_activation is not None:
+        result = [end_activation(r) for r in result]
+
+    return result
+
+
 class VariationalBase(nn.Module):
     GLOBAL_STD: float = 0
     LOG_STDS = False
     INIT_WEIGHTS = "usual"
     FIX_GAUSSIAN = None
     ALL_ACTIVATION_MODES = [
-            "mean",
-            "std",
-            "mean+std",
-            "end",
-            "mean+end",
-            "std+end",
-            "mean+std+end",
+        "mean",
+        "std",
+        "mean+std",
+        "end",
+        "mean+end",
+        "std+end",
+        "mean+std+end",
     ]
     ALL_BATCH_NORM_MODES = [
-            "mean",
-            "std",
-            "mean+std",
-            "end",
-            "mean+end",
-            "std+end",
-            "mean+std+end",
+        "mean",
+        "std",
+        "mean+std",
+        "end",
+        "mean+end",
+        "std+end",
+        "mean+std+end",
     ]
-    ALL_GLOBAL_STD_MODES=["none", "replace", "multiply"]
-
+    ALL_GLOBAL_STD_MODES = ["none", "replace", "multiply"]
 
     def __init__(self) -> None:
         super().__init__()
@@ -113,9 +177,7 @@ class VariationalBase(nn.Module):
                 if len(activation_targets) == 1:
                     current_activation: nn.Module = activation  # type: ignore
                 else:
-                    current_activation: nn.Module = activation[
-                        i
-                    ]  # type: ignore
+                    current_activation: nn.Module = activation[i]  # type: ignore
 
                 if target == "mean":
                     self.means = nn.Sequential(
@@ -170,7 +232,9 @@ class VariationalBase(nn.Module):
         if VariationalBase.FIX_GAUSSIAN is None:
             result = means + stds * torch.normal(0, torch.ones_like(means))
         else:
-            result = means + stds * VariationalBase.FIX_GAUSSIAN * torch.ones_like(means)
+            result = means + stds * VariationalBase.FIX_GAUSSIAN * torch.ones_like(
+                means
+            )
 
         if self.end_batch_norm is not None:
             result = self.end_batch_norm(result)
@@ -184,58 +248,23 @@ class VariationalBase(nn.Module):
         init_weights(self)
 
 
-
 class MultiOutputVariationalBase(VariationalBase):
 
     def __init__(self) -> None:
         super().__init__()
 
     def forward(self, x):
-        means = self.means(x)
-
-        if self.stds:
-            stds = self.stds(x)
-        else:
-            stds = 0
-
-        if self.global_std_mode == "replace":
-            stds = VariationalBase.GLOBAL_STD
-        elif self.global_std_mode == "multiply":
-            stds = [VariationalBase.GLOBAL_STD * s for s in stds]
-
-        if self.LOG_STDS:
-
-            for s in stds:
-                pstds = s
-
-                if isinstance(s, (int, float)):
-                    pstds = torch.tensor(s * 1.0)
-
-                print(
-                    "std%:",
-                    abs(
-                        float(torch.mean(pstds).detach())
-                        / float(torch.mean(means).detach())
-                        * 100
-                    ),
-                    "std:",
-                    float(torch.mean(pstds).detach()),
-                    "mean",
-                    float(torch.mean(means).detach()),
-                )
-
-        if VariationalBase.FIX_GAUSSIAN is None:
-            result = [m + s * torch.normal(0, torch.ones_like(m)) for m, s in zip(means, stds)]
-        else:
-            result = [m + s * VariationalBase.FIX_GAUSSIAN * torch.ones_like(m) for m, s in zip(means, stds)]
-
-        if self.end_batch_norm is not None:
-            result = [self.end_batch_norm(r) for r in result]
-
-        if self.end_activation is not None:
-            result = [self.end_activation(r) for r in result]
-
-        return result
+        return multi_output_variational_forward(
+            self.means,
+            self.stds,
+            x,
+            self.global_std_mode,
+            self.LOG_STDS,
+            VariationalBase.FIX_GAUSSIAN,
+            VariationalBase.GLOBAL_STD,
+            self.end_batch_norm,
+            self.end_activation,
+        )
 
 
 class VariationalConvolution(VariationalBase):
@@ -450,13 +479,19 @@ class VariationalConvolutionTranspose(VariationalBase):
         )
 
 
-def init_weights(self, all_submodules = None):
+def init_weights(self, all_submodules=None):
     init_type, *params = VariationalBase.INIT_WEIGHTS.split(":")
 
     if all_submodules is None:
         all_submodules = [
-            lambda x: (x[0].weight if isinstance(x, torch.nn.Sequential) else x.weight, True),
-            lambda x: (x[0].bias if isinstance(x, torch.nn.Sequential) else x.bias, False),
+            lambda x: (
+                x[0].weight if isinstance(x, torch.nn.Sequential) else x.weight,
+                True,
+            ),
+            lambda x: (
+                x[0].bias if isinstance(x, torch.nn.Sequential) else x.bias,
+                False,
+            ),
         ]
 
     if init_type == "usual":
@@ -467,7 +502,7 @@ def init_weights(self, all_submodules = None):
         value_bias = float(params[2])
 
         def fill(target):
-            
+
             for func_submodule in all_submodules:
                 submodule, is_weight = func_submodule(target)
 
@@ -485,12 +520,14 @@ def init_weights(self, all_submodules = None):
         gain_bias = float(params[2])
 
         def fill(target):
-            
+
             for func_submodule in all_submodules:
                 submodule, is_weight = func_submodule(target)
 
                 if submodule is not None:
-                    torch.nn.init.xavier_uniform_(submodule, gain=gain_kernel if is_weight else gain_bias)
+                    torch.nn.init.xavier_uniform_(
+                        submodule, gain=gain_kernel if is_weight else gain_bias
+                    )
 
         if "mean" in fill_what:
             fill(self.means)
@@ -503,7 +540,7 @@ def init_weights(self, all_submodules = None):
         gain_bias = float(params[2])
 
         def fill(target):
-            
+
             for func_submodule in all_submodules:
                 submodule, is_weight = func_submodule(target)
 
@@ -512,7 +549,6 @@ def init_weights(self, all_submodules = None):
                         torch.nn.init.xavier_uniform_(submodule, gain=gain_kernel)
                     else:
                         submodule.data.fill_(gain_bias)
-
 
         if "mean" in fill_what:
             fill(self.means)
@@ -525,7 +561,7 @@ def init_weights(self, all_submodules = None):
         gain_bias = float(params[2])
 
         def fill(target):
-            
+
             for func_submodule in all_submodules:
                 submodule, is_weight = func_submodule(target)
 
@@ -534,7 +570,6 @@ def init_weights(self, all_submodules = None):
                         torch.nn.init.xavier_uniform_(submodule, gain=gain_kernel)
                     else:
                         torch.nn.init.zeros_(submodule)
-
 
         if "mean" in fill_what:
             fill(self.means)
@@ -547,12 +582,14 @@ def init_weights(self, all_submodules = None):
         gain_bias = float(params[2])
 
         def fill(target):
-            
+
             for func_submodule in all_submodules:
                 submodule, is_weight = func_submodule(target)
 
                 if submodule is not None:
-                    torch.nn.init.xavier_normal_(submodule, gain=gain_kernel if is_weight else gain_bias)
+                    torch.nn.init.xavier_normal_(
+                        submodule, gain=gain_kernel if is_weight else gain_bias
+                    )
 
         if "mean" in fill_what:
             fill(self.means)
@@ -565,13 +602,15 @@ def init_weights(self, all_submodules = None):
         gain_bias = float(params[2])
 
         def fill(target):
-            
+
             for func_submodule in all_submodules:
                 submodule, is_weight = func_submodule(target)
 
                 if submodule is not None:
                     if is_weight:
-                        torch.nn.init.xavier_normal_(submodule, gain=gain_kernel if is_weight else gain_bias)
+                        torch.nn.init.xavier_normal_(
+                            submodule, gain=gain_kernel if is_weight else gain_bias
+                        )
                     else:
                         submodule.data.fill_(gain_bias)
 
@@ -586,13 +625,15 @@ def init_weights(self, all_submodules = None):
         gain_bias = float(params[2])
 
         def fill(target):
-            
+
             for func_submodule in all_submodules:
                 submodule, is_weight = func_submodule(target)
 
                 if submodule is not None:
                     if is_weight:
-                        torch.nn.init.xavier_normal_(submodule, gain=gain_kernel if is_weight else gain_bias)
+                        torch.nn.init.xavier_normal_(
+                            submodule, gain=gain_kernel if is_weight else gain_bias
+                        )
                     else:
                         torch.nn.init.zeros_(submodule)
 

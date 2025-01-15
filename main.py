@@ -23,7 +23,7 @@ from sklearn.metrics import (
 from statistics import stdev, mean
 from fire import Fire
 
-from networks.vnn_gat import VariationalBatchGAT
+from networks.vnn_gat import VariationalBatchGAT, UncertaintyAwareVariationalBatchGAT
 from networks.vnn_gcn import VariationalBatchGCN
 from draw import draw_uncertain_attention_graphs, draw_uncertain_attentions
 
@@ -403,6 +403,7 @@ def get_parameters(
     architecture_for_parameters = {
         "vgcn": "gcn",
         "vgat": "gat",
+        "uavgat": "gat",
         "gcn": "gcn",
         "gat": "gat",
     }[architecture]
@@ -436,7 +437,7 @@ def get_parameters(
 
 
 def is_variational_model(architecture):
-    return architecture in ["vgcn", "vgat"]
+    return architecture in ["vgcn", "vgat", "uavgat"]
 
 
 def main(
@@ -459,6 +460,7 @@ def main(
     test_with_uncertainty=False,
     draw_uncertainty_graphs=False,
     dataset_folder="data",
+    test_model_architecture=None,
     **vnn_kwargs,
 ):
     if not isinstance(networks, list):
@@ -614,6 +616,13 @@ def main(
                     n_heads=n_heads,
                     **vnn_kwargs,
                 )
+            elif args["model"] == "uavgat":
+                n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                model = UncertaintyAwareVariationalBatchGAT(
+                    n_units=n_units,
+                    n_heads=n_heads,
+                    **vnn_kwargs,
+                )
             else:
                 raise NotImplementedError
 
@@ -683,7 +692,21 @@ def main(
                     samples=train_samples,
                 )
             else:
-                path_model_checkpoint = model_path / "checkpoint.pt"
+                
+                if test_model_architecture is None:
+                    test_model_path = model_path
+                else:
+                    test_model_path = (
+                        Path(models_folder)
+                        / path
+                        / name
+                        / f"{test_model_architecture}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
+                    )
+                    print("Loading model from", test_model_path)
+                
+                test_model_path = Path(test_model_path)
+
+                path_model_checkpoint = test_model_path / "checkpoint.pt"
                 model.load_state_dict(
                     torch.load(path_model_checkpoint, weights_only=True)
                 )
@@ -714,7 +737,7 @@ def main(
 
                     if test_with_uncertainty:
 
-                        if architecture in ["vgat"]:
+                        if architecture in ["vgat", "uavgat"]:
                             valid_loss, best_thr, valid_stats, uncertainty_scores = (
                                 evaluate_with_uncertainty_and_attention(
                                     model,
@@ -736,7 +759,7 @@ def main(
                                     device,
                                     samples=samples,
                                     draw_uncertainty_graphs=draw_uncertainty_graphs,
-                                    plots_folder_path=plots_folder_path,
+                                    # plots_folder_path=plots_folder_path,
                                 )
                             )
                     else:
