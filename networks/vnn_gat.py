@@ -205,6 +205,7 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
 
         input_xs = []
         output_xs = []
+        h_primes = []
         all_attentions = {}
         attentions = {}
 
@@ -222,17 +223,32 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
         for i, gat_layer in enumerate(self.layer_stack):
             input_xs = output_xs
             output_xs = []
+            h_primes = []
 
             for s in range(samples):
                 x = input_xs.pop(0)
                 h_prime, attention = gat_layer.attention_step((x, adj))
-                x = gat_layer.output_step((h_prime, attention))[0]  # bs x n_head x n x f_out
+                h_primes.append(h_prime)
+                # x = gat_layer.output_step((h_prime, attention))[0]  # bs x n_head x n x f_out
                 # x, attention = gat_layer.all_steps((x, adj))
 
                 if i not in all_attentions:
                     all_attentions[i] = []
                 
                 all_attentions[i].append(attention)
+                # output_xs.append(x)
+
+            att_var, att = torch.var_mean(
+                torch.stack(all_attentions[i], dim=0), dim=0, unbiased=False
+            )
+
+            attention_filtered = filter_attentions(att, att_var)
+
+            attentions[i] = (att, att_var)
+
+            for s in range(samples):
+                h_prime = h_primes.pop(0)
+                x = gat_layer.output_step((h_prime, attention_filtered))[0]  # bs x n_head x n x f_out
                 output_xs.append(x)
 
             if i + 1 == self.n_layer:
@@ -242,13 +258,6 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
                 for q in range(len(output_xs)):
                     output_xs[q] = output_xs[q].transpose(1, 2).contiguous().view(bs, n, -1)
 
-            att_var, att = torch.var_mean(
-                torch.stack(all_attentions[i], dim=0), dim=0, unbiased=False
-            )
-
-            att = filter_attentions(att, att_var)
-
-            attentions[i] = (att, att_var)
 
         for q in range(len(output_xs)):
             output_xs[q] = F.log_softmax(output_xs[q], dim=-1)[:, -1, :]
