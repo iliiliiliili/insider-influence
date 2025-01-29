@@ -70,7 +70,9 @@ class VariationalBatchGAT(nn.Module):
                 )
             )
 
-    def forward(self, data, normalized_embedding=None, samples=None, return_uncertainty=False):
+    def forward(
+        self, data, normalized_embedding=None, samples=None, return_uncertainty=False
+    ):
 
         if samples is None:
             if self.training:
@@ -82,7 +84,7 @@ class VariationalBatchGAT(nn.Module):
         all_attentions = {}
 
         for s in range(samples):
-            
+
             (
                 adj,
                 x,
@@ -95,7 +97,7 @@ class VariationalBatchGAT(nn.Module):
 
                 if i not in all_attentions:
                     all_attentions[i] = []
-                
+
                 all_attentions[i].append(attention)
 
                 if i + 1 == self.n_layer:
@@ -103,7 +105,7 @@ class VariationalBatchGAT(nn.Module):
                 else:
                     x = x.transpose(1, 2).contiguous().view(bs, n, -1)
             outputs.append(F.log_softmax(x, dim=-1)[:, -1, :])
-        
+
         result_var, result = torch.var_mean(
             torch.stack(outputs, dim=0), dim=0, unbiased=False
         )
@@ -146,11 +148,13 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
         use_batch_norm=False,
         samples=4,
         test_samples=4,
+        training_method="variational",
     ):
         super(UncertaintyAwareVariationalBatchGAT, self).__init__()
 
         self.default_samples = samples
         self.test_samples = test_samples
+        self.training_method = training_method
 
         VariationalBase.FIX_GAUSSIAN = FIX_GAUSSIAN
         VariationalBase.INIT_WEIGHTS = INIT_WEIGHTS
@@ -195,7 +199,71 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
                 )
             )
 
-    def forward(self, data, normalized_embedding=None, samples=None, return_uncertainty=False):
+    def forward_variational(
+        self, data, normalized_embedding=None, samples=None, return_uncertainty=False
+    ):
+
+        if samples is None:
+            if self.training:
+                samples = self.default_samples
+            else:
+                samples = self.test_samples
+
+        input_xs = []
+        output_xs = []
+        h_primes = []
+        all_attentions = {}
+        attentions = {}
+
+        (
+            adj,
+            x,
+        ) = data
+        emb = normalized_embedding.float()
+        x = torch.cat((x, emb), dim=2)
+        bs, n = adj.size()[:2]
+
+        for s in range(samples):
+            output_xs.append(x)
+
+        for i, gat_layer in enumerate(self.layer_stack):
+            input_xs = output_xs
+            output_xs = []
+            h_primes = []
+
+            for s in range(samples):
+                x = input_xs.pop(0)
+                h_prime, attention = gat_layer.attention_step((x, adj))
+                x = gat_layer.output_step((h_prime, attention))[
+                    0
+                ]  # bs x n_head x n x f_out
+                output_xs.append(x)
+
+            if i + 1 == self.n_layer:
+                for q in range(len(output_xs)):
+                    output_xs[q] = output_xs[q].mean(dim=1)
+            else:
+                for q in range(len(output_xs)):
+                    output_xs[q] = (
+                        output_xs[q].transpose(1, 2).contiguous().view(bs, n, -1)
+                    )
+
+        for q in range(len(output_xs)):
+            output_xs[q] = F.log_softmax(output_xs[q], dim=-1)[:, -1, :]
+
+        result_var, result = torch.var_mean(
+            torch.stack(output_xs, dim=0), dim=0, unbiased=False
+        )
+
+        if return_uncertainty:
+
+            return result, result_var, attentions
+        else:
+            return result
+
+    def forward_uncertainty_aware(
+        self, data, normalized_embedding=None, samples=None, return_uncertainty=False
+    ):
 
         if samples is None:
             if self.training:
@@ -234,7 +302,7 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
 
                 if i not in all_attentions:
                     all_attentions[i] = []
-                
+
                 all_attentions[i].append(attention)
                 # output_xs.append(x)
 
@@ -248,7 +316,9 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
 
             for s in range(samples):
                 h_prime = h_primes.pop(0)
-                x = gat_layer.output_step((h_prime, attention_filtered))[0]  # bs x n_head x n x f_out
+                x = gat_layer.output_step((h_prime, attention_filtered))[
+                    0
+                ]  # bs x n_head x n x f_out
                 output_xs.append(x)
 
             if i + 1 == self.n_layer:
@@ -256,12 +326,13 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
                     output_xs[q] = output_xs[q].mean(dim=1)
             else:
                 for q in range(len(output_xs)):
-                    output_xs[q] = output_xs[q].transpose(1, 2).contiguous().view(bs, n, -1)
-
+                    output_xs[q] = (
+                        output_xs[q].transpose(1, 2).contiguous().view(bs, n, -1)
+                    )
 
         for q in range(len(output_xs)):
             output_xs[q] = F.log_softmax(output_xs[q], dim=-1)[:, -1, :]
-        
+
         result_var, result = torch.var_mean(
             torch.stack(output_xs, dim=0), dim=0, unbiased=False
         )
@@ -271,3 +342,23 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
             return result, result_var, attentions
         else:
             return result
+
+    def forward(
+        self, data, normalized_embedding=None, samples=None, return_uncertainty=False
+    ):
+
+        if self.training:
+            if self.training_method == "variational":
+                return self.forward_variational(
+                    data, normalized_embedding, samples, return_uncertainty
+                )
+            elif self.training_method == "uncertainty_aware":
+                return self.forward_uncertainty_aware(
+                    data, normalized_embedding, samples, return_uncertainty
+                )
+            else:
+                raise ValueError("Invalid training method")
+        else:
+            return self.forward_uncertainty_aware(
+                data, normalized_embedding, samples, return_uncertainty
+            )
