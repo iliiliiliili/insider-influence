@@ -512,7 +512,7 @@ def init_weights(self, all_submodules=None):
         if "mean" in fill_what:
             fill(self.means)
 
-        if "std" in fill_what:
+        if "std" in fill_what and self.stds is not None:
             fill(self.stds)
     elif init_type == "xavier_uniform":
         fill_what = params[0]
@@ -532,7 +532,7 @@ def init_weights(self, all_submodules=None):
         if "mean" in fill_what:
             fill(self.means)
 
-        if "std" in fill_what:
+        if "std" in fill_what and self.stds is not None:
             fill(self.stds)
     elif init_type == "xavier_uniform_fb":
         fill_what = params[0]
@@ -553,7 +553,7 @@ def init_weights(self, all_submodules=None):
         if "mean" in fill_what:
             fill(self.means)
 
-        if "std" in fill_what:
+        if "std" in fill_what and self.stds is not None:
             fill(self.stds)
     elif init_type == "xavier_uniform_0b":
         fill_what = params[0]
@@ -574,7 +574,7 @@ def init_weights(self, all_submodules=None):
         if "mean" in fill_what:
             fill(self.means)
 
-        if "std" in fill_what:
+        if "std" in fill_what and self.stds is not None:
             fill(self.stds)
     elif init_type == "xavier_normal":
         fill_what = params[0]
@@ -594,7 +594,7 @@ def init_weights(self, all_submodules=None):
         if "mean" in fill_what:
             fill(self.means)
 
-        if "std" in fill_what:
+        if "std" in fill_what and self.stds is not None:
             fill(self.stds)
     elif init_type == "xavier_normal_fb":
         fill_what = params[0]
@@ -617,7 +617,7 @@ def init_weights(self, all_submodules=None):
         if "mean" in fill_what:
             fill(self.means)
 
-        if "std" in fill_what:
+        if "std" in fill_what and self.stds is not None:
             fill(self.stds)
     elif init_type == "xavier_normal_0b":
         fill_what = params[0]
@@ -640,7 +640,7 @@ def init_weights(self, all_submodules=None):
         if "mean" in fill_what:
             fill(self.means)
 
-        if "std" in fill_what:
+        if "std" in fill_what and self.stds is not None:
             fill(self.stds)
     else:
         raise ValueError()

@@ -135,10 +135,69 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
             global_std_mode=global_std_mode,
         )
 
+    def means_attention_step(self):
+        if isinstance(self.means, nn.Sequential):
+
+            def run_means_attention_step(*args, **kwargs):
+
+                x = self.means[0].attention_step(*args, **kwargs)
+
+                if isinstance(x, (tuple, list)):
+                    for i in range(1, len(self.means)):
+                        x = [self.means[i](elem) for elem in x]
+                else:
+                    for i in range(1, len(self.means)):
+                        x = self.means[i](x)
+                
+                return x
+
+            return run_means_attention_step
+        
+        return self.means.attention_step
+    def means_output_step(self):
+        if isinstance(self.means, nn.Sequential):
+
+            def run_means_output_step(*args, **kwargs):
+
+                x = self.means[0].output_step(*args, **kwargs)
+
+                if isinstance(x, (tuple, list)):
+                    for i in range(1, len(self.means)):
+                        x = [self.means[i](elem) for elem in x]
+                else:
+                    for i in range(1, len(self.means)):
+                        x = self.means[i](x)
+                
+                return x
+
+            return run_means_output_step
+        
+        return self.means.output_step
+
+    def stds_attention_step(self):
+        if isinstance(self.stds, nn.Sequential):
+
+            def run_stds_attention_step(*args, **kwargs):
+
+                x = self.stds[0].attention_step(*args, **kwargs)
+
+                if isinstance(x, (tuple, list)):
+                    for i in range(1, len(self.stds)):
+                        x = [self.stds[i](elem) for elem in x]
+                else:
+                    for i in range(1, len(self.stds)):
+                        x = self.stds[i](x)
+                
+                return x
+
+            return run_stds_attention_step
+        
+        return self.stds.attention_step if self.stds else None
+
     def attention_step(self, input):
         return multi_output_variational_forward(
-            self.means.attention_step,
-            self.stds.attention_step,
+            self.means_attention_step(),
+            self.stds_attention_step(),
             input,
             self.global_std_mode,
             self.LOG_STDS,
@@ -149,7 +208,7 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
         )
 
     def output_step(self, input):
-        return self.means.output_step(input)
+        return self.means_output_step()(input)
         # return multi_output_variational_forward(
         #     self.means.output_step,
         #     self.stds.output_step,
@@ -164,8 +223,8 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
 
     def all_steps(self, input):
         return multi_output_variational_forward(
-            self.means.forward,
-            self.stds.forward,
+            self.means,
+            self.stds,
             input,
             self.global_std_mode,
             self.LOG_STDS,

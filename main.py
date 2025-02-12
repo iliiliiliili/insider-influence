@@ -896,6 +896,10 @@ def main(
         with open(results_folder_path / "result.json", "w") as f:
             json.dump(single_model_result, f)
 
+    if len(prediction_list) <= 0:
+        print("No predictions to evaluate")
+        return
+
     combined_predictions = pd.concat(prediction_list, axis=0)
     combined_predictions = combined_predictions[
         combined_predictions.architecture == "gat"
