@@ -463,6 +463,7 @@ def main(
     test_model_architecture=None,
     **vnn_kwargs,
 ):
+    
     if not isinstance(networks, list):
         networks = [networks]
 

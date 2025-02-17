@@ -5,15 +5,6 @@ from multiprocessing import Pool
 from networks.variational import VariationalBase
 import random
 
-DEBUG = False
-
-if DEBUG:
-    print("DEBUG")
-    print("DEBUG")
-    print("DEBUG")
-    print("DEBUG")
-    print("DEBUG")
-    print("DEBUG")
 
 def vnn_base_name(vnn_name):
     if "gat" in vnn_name:
@@ -24,8 +15,7 @@ def vnn_base_name(vnn_name):
     return vnn_name
 
 
-def run_experiments(experiments, devices, processes_per_device):
-
+def run_experiments(experiments, devices, processes_per_device, debug=False):
     print(f"Starting {len(experiments)} experiments")
 
     experiments_per_device = [0 for _ in devices]
@@ -51,7 +41,10 @@ def run_experiments(experiments, devices, processes_per_device):
         for i in range(exp_count):
             experiment_args, experiment_kwargs = experiments.pop(0)
 
-            if DEBUG:
+            if debug:
+                print("DEBUG")
+                print("DEBUG")
+                print("DEBUG")
                 main(*experiment_args, device=device, **experiment_kwargs)
             else:
                 # pool.apply(
@@ -59,6 +52,11 @@ def run_experiments(experiments, devices, processes_per_device):
                     main,
                     args=(*experiment_args,),
                     kwds={"device": device, **experiment_kwargs},
+                    error_callback=lambda e, args=experiment_args, kwargs=experiment_kwargs: open(
+                        "./errors.log", "a"
+                    ).write(
+                        f"Error: {str(e)}\nArgs: {args}\nKwargs: {kwargs}\n"
+                    ),
                 )
 
     for pool in pools:
@@ -68,7 +66,7 @@ def run_experiments(experiments, devices, processes_per_device):
     print("Done")
 
 
-def vnn(networks=["vgcn", "vgat"], devices=8, processes_per_device=3):
+def vnn(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug=False):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -84,10 +82,10 @@ def vnn(networks=["vgcn", "vgat"], devices=8, processes_per_device=3):
                 )
             )
 
-    run_experiments(experiments, devices, processes_per_device)
+    run_experiments(experiments, devices, processes_per_device, debug)
 
 
-def vnn_all(networks=["vgcn", "vgat"], devices=8, processes_per_device=3):
+def vnn_all(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug=False):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -126,10 +124,10 @@ def vnn_all(networks=["vgcn", "vgat"], devices=8, processes_per_device=3):
                                 )
                             )
 
-    run_experiments(experiments, devices, processes_per_device)
+    run_experiments(experiments, devices, processes_per_device, debug)
 
 
-def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3):
+def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug=False):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -191,7 +189,7 @@ def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3):
                                         )
                                     )
 
-    run_experiments(experiments, devices, processes_per_device)
+    run_experiments(experiments, devices, processes_per_device, debug)
 
 
 def base_experiment_all(
@@ -200,6 +198,7 @@ def base_experiment_all(
     vnn_networks=["vgcn", "vgat"],
     devices=8,
     processes_per_device=3,
+    debug=False,
 ):
 
     if not isinstance(devices, list):
@@ -312,10 +311,10 @@ def base_experiment_all(
                                         )
                                     )
 
-    run_experiments(experiments, devices, processes_per_device)
+    run_experiments(experiments, devices, processes_per_device, debug)
 
 
-def uncertainty_aware(networks=["uavgat"], devices=8, processes_per_device=3):
+def uncertainty_aware(networks=["uavgat"], devices=8, processes_per_device=2, debug=False):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -337,7 +336,10 @@ def uncertainty_aware(networks=["uavgat"], devices=8, processes_per_device=3):
                                 ("xnfb0x2", "xavier_normal_fb:stds:0.01:0.001"),
                                 ("xn0b0x2", "xavier_uniform_0b:stds:0.01:0.001"),
                             ]:
-                                for training_method in ["variational", "uncertainty_aware"]:
+                                for training_method in [
+                                    "variational",
+                                    "uncertainty_aware",
+                                ]:
 
                                     if global_std_mode == "none":
                                         gstds = [0]
@@ -379,7 +381,7 @@ def uncertainty_aware(networks=["uavgat"], devices=8, processes_per_device=3):
                                             )
                                         )
     random.shuffle(experiments)
-    run_experiments(experiments, devices, processes_per_device)
+    run_experiments(experiments, devices, processes_per_device, debug)
 
 
 if __name__ == "__main__":
