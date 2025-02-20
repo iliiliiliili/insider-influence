@@ -150,6 +150,7 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
         test_samples=4,
         training_method="variational",
         attention_filter_limit=0.5,
+        variational_mode_on_inference=False,
     ):
         super(UncertaintyAwareVariationalBatchGAT, self).__init__()
 
@@ -157,6 +158,7 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
         self.test_samples = test_samples
         self.training_method = training_method
         self.attention_filter_limit = attention_filter_limit
+        self.variational_mode_on_inference = variational_mode_on_inference
 
         VariationalBase.FIX_GAUSSIAN = FIX_GAUSSIAN
         VariationalBase.INIT_WEIGHTS = INIT_WEIGHTS
@@ -361,6 +363,12 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
             else:
                 raise ValueError("Invalid training method")
         else:
-            return self.forward_uncertainty_aware(
-                data, normalized_embedding, samples, return_uncertainty
-            )
+
+            if self.variational_mode_on_inference:
+                return self.forward_variational(
+                    data, normalized_embedding, samples, return_uncertainty
+                )
+            else:
+                return self.forward_uncertainty_aware(
+                    data, normalized_embedding, samples, return_uncertainty
+                )

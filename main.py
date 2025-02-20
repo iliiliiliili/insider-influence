@@ -464,6 +464,7 @@ def main(
     override_horizon=None,
     override_frequency=None,
     override_direction=None,
+    evaluation_result_subfolder=None,
     **vnn_kwargs,
 ):
     
@@ -535,6 +536,9 @@ def main(
             / name
             / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
         )
+
+        if evaluation_result_subfolder is not None:
+            results_folder_path = results_folder_path / evaluation_result_subfolder
 
         plots_folder_path = (
             Path(plots_folder)
@@ -895,6 +899,10 @@ def main(
             / name
             / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
         )
+
+        if evaluation_result_subfolder is not None:
+            results_folder_path = results_folder_path / evaluation_result_subfolder
+
         os.makedirs(results_folder_path, exist_ok=True)
 
         with open(results_folder_path / "result.json", "w") as f:
@@ -984,6 +992,9 @@ def main(
 
         if results_folder is not None:
             results_folder_path = Path(results_folder) / path / name
+
+            if evaluation_result_subfolder is not None:
+                results_folder_path = results_folder_path / evaluation_result_subfolder
             os.makedirs(results_folder_path, exist_ok=True)
 
             with open(results_folder_path / ".gitignore", "w") as f:
