@@ -149,12 +149,14 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
         samples=4,
         test_samples=4,
         training_method="variational",
+        attention_filter_limit=0.5,
     ):
         super(UncertaintyAwareVariationalBatchGAT, self).__init__()
 
         self.default_samples = samples
         self.test_samples = test_samples
         self.training_method = training_method
+        self.attention_filter_limit = attention_filter_limit
 
         VariationalBase.FIX_GAUSSIAN = FIX_GAUSSIAN
         VariationalBase.INIT_WEIGHTS = INIT_WEIGHTS
@@ -310,7 +312,7 @@ class UncertaintyAwareVariationalBatchGAT(nn.Module):
                 torch.stack(all_attentions[i], dim=0), dim=0, unbiased=False
             )
 
-            attention_filtered = filter_attentions(att, att_var)
+            attention_filtered = filter_attentions(att, att_var, self.attention_filter_limit)
 
             attentions[i] = (att, att_var)
 

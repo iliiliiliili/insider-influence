@@ -36,7 +36,16 @@ from plotnine.scales.scale_xy import scale_x_discrete
 HORIZON_FLAGS = ["Lead-lag", "Simultaneous", "h_mean"]
 FREQUENCY_FLAGS = ["D", "W", "f_mean"]
 DIRECTION_FLAGS = ["Buy", "Sell", "d_mean"]
-MODEL_TYPE_FLAGS = ["baselines", "vnn_gat", "vnn_gcn", "vnn_gat_ivb", "vnn_gcn_ivb", "vnn_gat_ivo", "vnn_gcn_ivo", "original"]
+MODEL_TYPE_FLAGS = [
+    "baselines",
+    "vnn_gat",
+    "vnn_gcn",
+    "vnn_gat_ivb",
+    "vnn_gcn_ivb",
+    "vnn_gat_ivo",
+    "vnn_gcn_ivo",
+    "original",
+]
 
 
 def is_mean_flag(flag):
@@ -85,6 +94,7 @@ class Experiment:
     flags: List[str]
     results: List[SingleResult]
     age_days: int
+    path: str
     __best_result: float = None
 
     def best_result(self):
@@ -226,6 +236,7 @@ def create_mean_results(experiments: List[Experiment]):
                 if len(experiment_set) > 1
                 else experiment_set[0].age_days
             ),
+            path=experiment_set[0].path,
         )
 
         mean_set.append(mean_experiment)
@@ -234,7 +245,10 @@ def create_mean_results(experiments: List[Experiment]):
 
 
 def show_inclusion_table(
-    experiments: List[Experiment], experiments_per_group, exlcude_model_types=[], show_empty=True
+    experiments: List[Experiment],
+    experiments_per_group,
+    exlcude_model_types=[],
+    show_empty=True,
 ):
 
     experiments = experiments + create_mean_results(experiments)
@@ -361,8 +375,6 @@ def show_inclusion_table(
 
                     groups[horizon][frequency][direction][model_type] = experiments
 
-    print()
-
     for horizon in HORIZON_FLAGS:
         for frequency in FREQUENCY_FLAGS:
             for direction in DIRECTION_FLAGS:
@@ -431,10 +443,15 @@ def show_inclusion_table(
                                 if (model_type != compare_model_type) and (
                                     compare_model_type not in exlcude_model_types
                                 ):
-                                    
-                                    if len( groups[horizon][frequency][
-                                        direction
-                                    ][compare_model_type]) <= 0:
+
+                                    if (
+                                        len(
+                                            groups[horizon][frequency][direction][
+                                                compare_model_type
+                                            ]
+                                        )
+                                        <= 0
+                                    ):
                                         continue
 
                                     compare_experiment = groups[horizon][frequency][
@@ -472,17 +489,29 @@ def show_inclusion_table(
                         ]
                         table.append(colored_line(experiment_color(experiment), line))
                         raw_table.append(line)
-                        
-                        data_frame["horizon"].append(transform_subset_name_for_plotting(horizon))
-                        data_frame["frequency"].append(transform_subset_name_for_plotting(frequency))
-                        data_frame["direction"].append(transform_subset_name_for_plotting(direction))
-                        data_frame["Model Type"].append(transform_model_type_for_plotting(model_type))
+
+                        data_frame["horizon"].append(
+                            transform_subset_name_for_plotting(horizon)
+                        )
+                        data_frame["frequency"].append(
+                            transform_subset_name_for_plotting(frequency)
+                        )
+                        data_frame["direction"].append(
+                            transform_subset_name_for_plotting(direction)
+                        )
+                        data_frame["Model Type"].append(
+                            transform_model_type_for_plotting(model_type)
+                        )
                         data_frame["Network"].append(experiment.network_type)
                         data_frame["F1"].append(best_result.f1)
                         data_frame["f1 std"].append(best_result.f1_std)
                         data_frame["auc"].append(best_result.auc)
-                        data_frame["s"].append(0 if experiment.samples is None else experiment.samples)
-                        data_frame["ts"].append(0 if best_result.samples == -1 else best_result.samples)
+                        data_frame["s"].append(
+                            0 if experiment.samples is None else experiment.samples
+                        )
+                        data_frame["ts"].append(
+                            0 if best_result.samples == -1 else best_result.samples
+                        )
 
                     if (not experiments_exist) and show_empty:
 
@@ -523,7 +552,7 @@ def show_inclusion_table(
     print(tab)
     with open("inclusion_table.txt", "w") as f:
         print(raw_tab, file=f)
-    
+
     data_frame = DataFrame(data_frame)
 
     return data_frame
@@ -549,10 +578,9 @@ def plot_single_frame(frame, output_file_name, model_type_order):
     plot.save(str(output_file_name), dpi=600)
 
 
-def main(root="./results", plots_folder="plots", exlcude_model_types=[], experiments_per_group=10):
-
-    if not isinstance(exlcude_model_types, list):
-        exlcude_model_types = [exlcude_model_types]
+def find_experiments(
+    results_root, root, allowed_subfolders=None, forbidden_subfolders=None
+):
 
     subdirs = os.walk(root)
 
@@ -561,7 +589,13 @@ def main(root="./results", plots_folder="plots", exlcude_model_types=[], experim
     for subdir, _, files in subdirs:
         for file in files:
             if "result.json" in file:
-                all_result_files.append((subdir, file))
+                if allowed_subfolders is None or any(
+                    [a in subdir for a in allowed_subfolders]
+                ):
+                    if forbidden_subfolders is None or not any(
+                        [f in subdir for f in forbidden_subfolders]
+                    ):
+                        all_result_files.append((subdir, file))
 
     print(f"Found {len(all_result_files)} results")
 
@@ -571,7 +605,7 @@ def main(root="./results", plots_folder="plots", exlcude_model_types=[], experim
         full_file_name = os.path.join(subdir, file)
         # print(full_file_name)
 
-        groups = subdir.replace(root + "/", "").split("/")
+        groups = subdir.replace(results_root + "/", "").split("/")
         network_group = groups.pop()
         network_type, *params = re.findall(r"[a-zA-Z-]+|\d+", network_group)
         samples = None
@@ -605,6 +639,12 @@ def main(root="./results", plots_folder="plots", exlcude_model_types=[], experim
                 i += 1
             elif params[i] == "gstd":
                 flags.append(("gstd", params[i + 1]))
+                i += 1
+            elif params[i] == "train":
+                flags.append(("uatrain", params[i + 1]))
+                i += 1
+            elif params[i] == "afl":
+                flags.append(("afl", params[i + 1]))
                 i += 1
             elif params[i] in ["iv"]:
                 flags.append(("iv_base", params[i + 1]))
@@ -667,11 +707,31 @@ def main(root="./results", plots_folder="plots", exlcude_model_types=[], experim
             flags=flags,
             results=experiment_results,
             age_days=file_age_in_days(full_file_name),
+            path=full_file_name,
         )
 
         all_experiments.append(experiment)
 
-    data_frame = show_inclusion_table(all_experiments, exlcude_model_types=exlcude_model_types, experiments_per_group=experiments_per_group)
+    return all_experiments
+
+
+def main(
+    root="./results",
+    plots_folder="plots",
+    exlcude_model_types=[],
+    experiments_per_group=10,
+):
+
+    if not isinstance(exlcude_model_types, list):
+        exlcude_model_types = [exlcude_model_types]
+
+    all_experiments = find_experiments(root)
+
+    data_frame = show_inclusion_table(
+        all_experiments,
+        exlcude_model_types=exlcude_model_types,
+        experiments_per_group=experiments_per_group,
+    )
 
     # model_type_order = ["original", "ivnn", "vnn", "baselines"]
     model_type_order = ["original", "ivgat", "vgat", "ivgcn", "vgcn", "baselines"]
@@ -680,8 +740,57 @@ def main(root="./results", plots_folder="plots", exlcude_model_types=[], experim
         if t in model_type_order:
             model_type_order.remove(t)
 
-    plot_single_frame(data_frame, Path(plots_folder) / "insider-results.png", model_type_order)
+    plot_single_frame(
+        data_frame, Path(plots_folder) / "insider-results.png", model_type_order
+    )
+
+
+def uncertainty_aware(
+    ua_models_root="./results/vnn_gat/iv_baselines_xnfb0x2/activation_mean/gstd-mode_multiply",
+    vnn_models_root="./results/vnn_gat/iv_baselines_xnfb0x2/activation_mean/gstd-mode_multiply",
+    results_root="./results",
+    ua_model_types=["train_variational", "train_uncertainty_aware"],
+    samples=None,
+    plots_folder="plots",
+    exlcude_model_types=[],
+    experiments_per_group=100,
+):
+
+    if not isinstance(exlcude_model_types, list):
+        exlcude_model_types = [exlcude_model_types]
+
+    ua_experiments = find_experiments(
+        results_root, ua_models_root, allowed_subfolders=ua_model_types
+    )
+    vnn_experiments = find_experiments(
+        results_root, vnn_models_root, forbidden_subfolders=ua_model_types
+    )
+
+    if samples is not None:
+        ua_experiments = [e for e in ua_experiments if e.samples == samples]
+        vnn_experiments = [e for e in vnn_experiments if e.samples == samples]
+
+    all_experiments = ua_experiments + vnn_experiments
+
+    data_frame = show_inclusion_table(
+        all_experiments,
+        exlcude_model_types=exlcude_model_types,
+        experiments_per_group=experiments_per_group,
+    )
+
+    # model_type_order = ["original", "ivnn", "vnn", "baselines"]
+    model_type_order = ["original", "ivgat", "vgat", "ivgcn", "vgcn", "baselines"]
+
+    for t in exlcude_model_types:
+        if t in model_type_order:
+            model_type_order.remove(t)
+
+    plot_single_frame(
+        data_frame,
+        Path(plots_folder) / "uncertainty_aware-results.png",
+        model_type_order,
+    )
 
 
 if __name__ == "__main__":
-    Fire(main)
+    Fire()

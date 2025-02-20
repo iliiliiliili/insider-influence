@@ -461,6 +461,9 @@ def main(
     draw_uncertainty_graphs=False,
     dataset_folder="data",
     test_model_architecture=None,
+    override_horizon=None,
+    override_frequency=None,
+    override_direction=None,
     **vnn_kwargs,
 ):
     
@@ -475,9 +478,9 @@ def main(
 
     datasets: List[Tuple[str, str, str, str]] = []
     for architecture in networks:
-        for horizon in ["Lead-lag", "Simultaneous"]:
-            for frequency in ["D", "W"]:
-                for direction in ["Buy", "Sell"]:
+        for horizon in [override_horizon] if override_horizon else ["Lead-lag", "Simultaneous"]:
+            for frequency in [override_frequency] if override_frequency else ["D", "W"]:
+                for direction in [override_direction] if override_direction else ["Buy", "Sell"]:
                     datasets.append((architecture, horizon, frequency, direction))
 
     # Main result for best GCN and GAT architectures
