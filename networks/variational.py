@@ -3,6 +3,28 @@ import torch
 from torch import nn
 
 
+def multi_output_variational_gaussian_sample(means, stds, global_std_mode, GLOBAL_STD, FIX_GAUSSIAN, split=None):
+
+    if global_std_mode == "replace":
+        stds = [GLOBAL_STD for _ in range(len(means))]
+    elif global_std_mode == "multiply":
+        stds = [GLOBAL_STD * s for s in stds]
+
+
+    if split is None:
+        split = [False for _ in range(len(means))]
+
+    if FIX_GAUSSIAN is None:
+        result = [
+            (m, s) if spl else m + s * torch.normal(0, torch.ones_like(m)) for m, s, spl in zip(means, stds, split)
+        ]
+    else:
+        result = [
+            (m, s) if spl else m + s * FIX_GAUSSIAN * torch.ones_like(m) for m, s, spl in zip(means, stds, split)
+        ]
+    
+    return result
+
 def multi_output_variational_forward(
     means_module,
     stds_module,
@@ -17,19 +39,11 @@ def multi_output_variational_forward(
 ):
     means = means_module(x)
 
-    if split is None:
-        split = [False for _ in range(len(means))]
-
     if stds_module:
         stds = stds_module(x)
     else:
         stds = 0
-
-    if global_std_mode == "replace":
-        stds = [GLOBAL_STD for _ in range(len(means))]
-    elif global_std_mode == "multiply":
-        stds = [GLOBAL_STD * s for s in stds]
-
+        
     if LOG_STDS:
         for s in stds:
             pstds = s
@@ -50,14 +64,8 @@ def multi_output_variational_forward(
                 float(torch.mean(means).detach()),
             )
 
-    if FIX_GAUSSIAN is None:
-        result = [
-            (m, s) if spl else m + s * torch.normal(0, torch.ones_like(m)) for m, s, spl in zip(means, stds, split)
-        ]
-    else:
-        result = [
-            (m, s) if spl else m + s * FIX_GAUSSIAN * torch.ones_like(m) for m, s, spl in zip(means, stds, split)
-        ]
+    result = multi_output_variational_gaussian_sample(
+        means, stds, global_std_mode, GLOBAL_STD, FIX_GAUSSIAN, split)
 
     if end_batch_norm is not None:
         result = [end_batch_norm(r) for r in result]
@@ -253,10 +261,100 @@ class MultiOutputVariationalBase(VariationalBase):
     def __init__(self) -> None:
         super().__init__()
 
+        
+    def build(
+        self,
+        means: nn.Module,
+        stds: Any,
+        batch_norm_module: Any,
+        batch_norm_size: int,
+        activation: Optional[Union[nn.Module, List[nn.Module]]] = None,
+        activation_mode: Union[
+            Literal["mean"],
+            Literal["std"],
+            Literal["mean+std"],
+            Literal["end"],
+            Literal["mean+end"],
+            Literal["std+end"],
+            Literal["mean+std+end"],
+        ] = "mean",
+        use_batch_norm: bool = False,
+        batch_norm_mode: Union[
+            Literal["mean"],
+            Literal["std"],
+            Literal["mean+std"],
+            Literal["end"],
+            Literal["mean+end"],
+            Literal["std+end"],
+            Literal["mean+std+end"],
+        ] = "mean",
+        batch_norm_eps: float = 1e-3,
+        batch_norm_momentum: float = 0.01,
+        global_std_mode: Union[
+            Literal["none"], Literal["replace"], Literal["multiply"]
+        ] = "none",
+    ) -> None:
+        
+        super().build(
+            means,
+            stds,
+            batch_norm_module,
+            batch_norm_size,
+            activation=activation,
+            activation_mode=activation_mode,
+            use_batch_norm=use_batch_norm,
+            batch_norm_mode=batch_norm_mode,
+            batch_norm_eps=batch_norm_eps,
+            batch_norm_momentum=batch_norm_momentum,
+            global_std_mode=global_std_mode,
+        )
+        
+        run_means = lambda *args, **kwargs: means(*args, **kwargs)
+        run_stds = lambda *args, **kwargs: stds(*args, **kwargs)
+
+        if isinstance(self.means, nn.Sequential):
+
+            def new_run_means(*args, **kwargs):
+
+                x = self.means[0](*args, **kwargs)
+
+                if isinstance(x, (tuple, list)):
+                    for i in range(1, len(self.means)):
+                        x = [self.means[i](elem) for elem in x]
+                else:
+                    for i in range(1, len(self.means)):
+                        x = self.means[i](x)
+                
+                return x
+
+            run_means = new_run_means
+
+        if isinstance(self.stds, nn.Sequential):
+
+            def new_run_stds(*args, **kwargs):
+
+                x = self.stds[0](*args, **kwargs)
+
+                if isinstance(x, (tuple, list)):
+                    for i in range(1, len(self.stds)):
+                        x = [self.stds[i](elem) for elem in x]
+                else:
+                    for i in range(1, len(self.stds)):
+                        x = self.stds[i](x)
+                
+                return x
+
+            run_stds = new_run_stds
+        
+        self.run_means = run_means
+        self.run_stds = run_stds
+
+
+
     def forward(self, x):
         return multi_output_variational_forward(
-            self.means,
-            self.stds,
+            self.run_means,
+            self.run_stds,
             x,
             self.global_std_mode,
             self.LOG_STDS,

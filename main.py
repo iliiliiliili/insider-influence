@@ -23,7 +23,7 @@ from sklearn.metrics import (
 from statistics import stdev, mean
 from fire import Fire
 
-from networks.vnn_gat import VariationalBatchGAT, UncertaintyAwareVariationalBatchGAT
+from networks.vnn_gat import VariationalBatchGAT, UncertaintyAwareEarlyAttentionVariationalBatchGAT, UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT
 from networks.vnn_gcn import VariationalBatchGCN
 from draw import draw_uncertain_attention_graphs, draw_uncertain_attentions
 
@@ -403,7 +403,8 @@ def get_parameters(
     architecture_for_parameters = {
         "vgcn": "gcn",
         "vgat": "gat",
-        "uavgat": "gat",
+        "uaeavgat": "gat",
+        "uafmcivgat": "gat",
         "gcn": "gcn",
         "gat": "gat",
     }[architecture]
@@ -437,7 +438,7 @@ def get_parameters(
 
 
 def is_variational_model(architecture):
-    return architecture in ["vgcn", "vgat", "uavgat"]
+    return architecture in ["vgcn", "vgat", "uaeavgat", "uafmcivgat"]
 
 
 def main(
@@ -460,11 +461,13 @@ def main(
     test_with_uncertainty=False,
     draw_uncertainty_graphs=False,
     dataset_folder="data",
-    test_model_architecture=None,
+    load_model_from_architecture=None,
     override_horizon=None,
     override_frequency=None,
     override_direction=None,
     evaluation_result_subfolder=None,
+    model_name_suffix=None,
+    name_for_loading=None,
     **vnn_kwargs,
 ):
     
@@ -472,6 +475,8 @@ def main(
         networks = [networks]
 
     train = (mode == "train") or (mode == True)
+    model_name_suffix = "" if model_name_suffix is None else model_name_suffix
+    name_for_loading = name if name_for_loading is None else name_for_loading
 
     if not train:
         if mode not in ("test", False):
@@ -534,7 +539,7 @@ def main(
             Path(results_folder)
             / path
             / name
-            / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
+            / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}"
         )
 
         if evaluation_result_subfolder is not None:
@@ -544,14 +549,14 @@ def main(
             Path(plots_folder)
             / path
             / name
-            / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
+            / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}"
         )
 
         if (not ignore_existing) and os.path.exists(
             results_folder_path / "result.json"
         ):
             print(f"Already tested {results_folder_path}")
-            break
+            continue
 
         for sid, seed in enumerate(seeds):
 
@@ -624,9 +629,16 @@ def main(
                     n_heads=n_heads,
                     **vnn_kwargs,
                 )
-            elif args["model"] == "uavgat":
+            elif args["model"] == "uaeavgat":
                 n_heads = [int(x) for x in args["heads"].strip().split(",")]
-                model = UncertaintyAwareVariationalBatchGAT(
+                model = UncertaintyAwareEarlyAttentionVariationalBatchGAT(
+                    n_units=n_units,
+                    n_heads=n_heads,
+                    **vnn_kwargs,
+                )
+            elif args["model"] == "uafmcivgat":
+                n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                model = UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT(
                     n_units=n_units,
                     n_heads=n_heads,
                     **vnn_kwargs,
@@ -640,7 +652,7 @@ def main(
                 Path(models_folder)
                 / path
                 / name
-                / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
+                / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
             )
 
             if init_vnn_from:
@@ -701,17 +713,17 @@ def main(
                 )
             else:
                 
-                if test_model_architecture is None:
+                if load_model_from_architecture is None:
                     test_model_path = model_path
                 else:
                     test_model_path = (
                         Path(models_folder)
                         / path
-                        / name
-                        / f"{test_model_architecture}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
+                        / name_for_loading
+                        / f"{load_model_from_architecture}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
                     )
-                    print("Loading model from", test_model_path)
-                
+
+                print("Loading model from", test_model_path)
                 test_model_path = Path(test_model_path)
 
                 path_model_checkpoint = test_model_path / "checkpoint.pt"
@@ -897,7 +909,7 @@ def main(
             Path(results_folder)
             / path
             / name
-            / f"{architecture}{vnn_subname}_{horizon}_{frequency}_{direction}"
+            / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}"
         )
 
         if evaluation_result_subfolder is not None:

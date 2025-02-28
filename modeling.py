@@ -45,7 +45,14 @@ def run_experiments(experiments, devices, processes_per_device, debug=False):
                 print("DEBUG")
                 print("DEBUG")
                 print("DEBUG")
-                main(*experiment_args, device=device, **experiment_kwargs, override_horizon="Lead-lag", override_frequency="D", override_direction="Buy")
+                main(
+                    *experiment_args,
+                    device=device,
+                    **experiment_kwargs,
+                    override_horizon="Lead-lag",
+                    override_frequency="D",
+                    override_direction="Buy",
+                )
             else:
                 # pool.apply(
                 pool.apply_async(
@@ -314,7 +321,9 @@ def base_experiment_all(
     run_experiments(experiments, devices, processes_per_device, debug)
 
 
-def uncertainty_aware(networks=["uavgat"], devices=8, processes_per_device=2, debug=False):
+def uncertainty_aware(
+    networks=["uavgat"], devices=8, processes_per_device=2, debug=False
+):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -383,7 +392,10 @@ def uncertainty_aware(networks=["uavgat"], devices=8, processes_per_device=2, de
     random.shuffle(experiments)
     run_experiments(experiments, devices, processes_per_device, debug)
 
-def uncertainty_aware_from_best_vgat(networks=["uavgat"], devices=8, processes_per_device=1, debug=False):
+
+def uncertainty_aware_from_best_vgat(
+    networks=["uavgat"], devices=8, processes_per_device=1, debug=False
+):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -403,7 +415,13 @@ def uncertainty_aware_from_best_vgat(networks=["uavgat"], devices=8, processes_p
                                     "variational",
                                     "uncertainty_aware",
                                 ]:
-                                    for attention_filter_limit in [0.1, 0.5, 0.7, 1, 10]:
+                                    for attention_filter_limit in [
+                                        0.1,
+                                        0.5,
+                                        0.7,
+                                        1,
+                                        10,
+                                    ]:
 
                                         if global_std_mode == "none":
                                             gstds = [0]
@@ -449,7 +467,10 @@ def uncertainty_aware_from_best_vgat(networks=["uavgat"], devices=8, processes_p
     random.shuffle(experiments)
     run_experiments(experiments, devices, processes_per_device, debug)
 
-def test_variational_inference_for_uncertainty_aware_from_best_vgat(networks=["uavgat"], devices=8, processes_per_device=1, debug=False):
+
+def train_vgat_for_unecrtainty_aware(
+    networks=["vgat"], devices=8, processes_per_device=3, debug=False
+):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -457,7 +478,7 @@ def test_variational_inference_for_uncertainty_aware_from_best_vgat(networks=["u
     experiments = []
 
     for net in networks:
-        for samples in [7]:
+        for samples in [7, 2]:
             for activation_mode in ["mean"]:
                 for use_batch_norm in [False]:
                     for global_std_mode in ["multiply"]:
@@ -465,58 +486,116 @@ def test_variational_inference_for_uncertainty_aware_from_best_vgat(networks=["u
                             for init_vnn_name, init_vnn_weights in [
                                 ("xnfb0x2", "xavier_normal_fb:stds:0.01:0.001"),
                             ]:
-                                for training_method in [
-                                    "variational",
-                                    "uncertainty_aware",
-                                ]:
-                                    for attention_filter_limit in [0.1, 0.5, 0.7, 1, 10]:
+                                if global_std_mode == "none":
+                                    gstds = [0]
+                                else:
+                                    gstds = [0.05, 0.1, 0.5, 1]
 
-                                        if global_std_mode == "none":
-                                            gstds = [0]
-                                        else:
-                                            gstds = [0.05]
+                                for gstd in gstds:
 
-                                        for gstd in gstds:
+                                    name = (
+                                        f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
+                                        + (
+                                            ""
+                                            if global_std_mode == "none"
+                                            else f"/gstd_{gstd}"
+                                        )
+                                    )
 
-                                            name = (
-                                                f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
-                                                + f"/train_{training_method}/afl_{attention_filter_limit}"
-                                                + (
-                                                    ""
-                                                    if global_std_mode == "none"
-                                                    else f"/gstd_{gstd}"
-                                                )
-                                            )
-
-                                            experiments.append(
-                                                (
-                                                    [
-                                                        "test",
-                                                        name,
-                                                        net,
-                                                        f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
-                                                    ],
-                                                    {
-                                                        "train_samples": samples,
-                                                        "batch_norm_mode": activation_mode,
-                                                        "activation_mode": activation_mode,
-                                                        "use_batch_norm": use_batch_norm,
-                                                        "global_std_mode": global_std_mode,
-                                                        "GLOBAL_STD": gstd,
-                                                        "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
-                                                        "INIT_WEIGHTS": init_vnn_weights,
-                                                        "init_vnn_from_original": init_from
-                                                        == "original",
-                                                        "training_method": training_method,
-                                                        "attention_filter_limit": attention_filter_limit,
-                                                        "evaluation_result_subfolder": "varinf",
-                                                        "variational_mode_on_inference": True,
-                                                    },
-                                                )
-                                            )
+                                    experiments.append(
+                                        (
+                                            [
+                                                "train",
+                                                name,
+                                                net,
+                                                f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                            ],
+                                            {
+                                                "train_samples": samples,
+                                                "batch_norm_mode": activation_mode,
+                                                "activation_mode": activation_mode,
+                                                "use_batch_norm": use_batch_norm,
+                                                "global_std_mode": global_std_mode,
+                                                "GLOBAL_STD": gstd,
+                                                "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                "INIT_WEIGHTS": init_vnn_weights,
+                                                "init_vnn_from_original": init_from
+                                                == "original",
+                                            },
+                                        )
+                                    )
     random.shuffle(experiments)
     run_experiments(experiments, devices, processes_per_device, debug)
 
+
+
+def test_uncertainty_aware_from_best_vgat(
+    networks=["uafmcivgat"], devices=8, processes_per_device=1, debug=False
+):
+
+    if not isinstance(devices, list):
+        devices = [f"cuda:{d}" for d in range(devices)]
+
+    experiments = []
+
+    for net in networks:
+        for samples in [7, 2]:
+            for activation_mode in ["mean"]:
+                for use_batch_norm in [False]:
+                    for global_std_mode in ["multiply"]:
+                        for init_from in ["baselines"]:
+                            for init_vnn_name, init_vnn_weights in [
+                                ("xnfb0x2", "xavier_normal_fb:stds:0.01:0.001"),
+                            ]:
+                                for attention_filter_limit in [0.1, 0.5, 0.7, 1, 10, -0.1, -0.5, -0.7, -1, -10]:
+
+                                    if global_std_mode == "none":
+                                        gstds = [0]
+                                    else:
+                                        gstds = [0.05, 0.1, 0.5, 1]
+
+                                    for gstd in gstds:
+
+                                        name_for_loading = (
+                                            f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
+                                            + (
+                                                ""
+                                                if global_std_mode == "none"
+                                                else f"/gstd_{gstd}"
+                                            )
+                                        )
+                                        name = (
+                                            name_for_loading
+                                            + f"/afl_{attention_filter_limit}"
+                                        )
+
+                                        experiments.append(
+                                            (
+                                                [
+                                                    "test",
+                                                    name,
+                                                    net,
+                                                    f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                ],
+                                                {
+                                                    "train_samples": samples,
+                                                    "batch_norm_mode": activation_mode,
+                                                    "activation_mode": activation_mode,
+                                                    "use_batch_norm": use_batch_norm,
+                                                    "global_std_mode": global_std_mode,
+                                                    "GLOBAL_STD": gstd,
+                                                    # "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                    "INIT_WEIGHTS": init_vnn_weights,
+                                                    "init_vnn_from_original": init_from
+                                                    == "original",
+                                                    "attention_filter_limit": attention_filter_limit,
+                                                    "load_model_from_architecture": "vgat",
+                                                    "name_for_loading": name_for_loading,
+                                                },
+                                            )
+                                        )
+    random.shuffle(experiments)
+    run_experiments(experiments, devices, processes_per_device, debug)
 
 
 if __name__ == "__main__":

@@ -607,7 +607,7 @@ def find_experiments(
 
         groups = subdir.replace(results_root + "/", "").split("/")
         network_group = groups.pop()
-        network_type, *params = re.findall(r"[a-zA-Z-]+|\d+", network_group)
+        network_type, *params = re.findall(r"-?[\d\.]+|[a-zA-Z-]+", network_group)
         samples = None
         batch = None
         flags = []
@@ -619,7 +619,7 @@ def find_experiments(
             if g in MODEL_TYPE_FLAGS:
                 params.append(g)
             else:
-                params += re.findall(r"[a-zA-Z-]+|[\d\.]+", g)
+                params += re.findall(r"-?[\d\.]+|[a-zA-Z-]+", g)
 
         while i < len(params):
             if params[i] == "s":
@@ -725,7 +725,7 @@ def main(
     if not isinstance(exlcude_model_types, list):
         exlcude_model_types = [exlcude_model_types]
 
-    all_experiments = find_experiments(root)
+    all_experiments = find_experiments(root, root)
 
     data_frame = show_inclusion_table(
         all_experiments,

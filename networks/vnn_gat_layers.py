@@ -20,6 +20,7 @@ from networks.variational import (
     MultiOutputVariationalBase,
     init_weights as vnn_init_weights,
     multi_output_variational_forward,
+    multi_output_variational_gaussian_sample,
 )
 
 
@@ -138,20 +139,22 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
     def means_attention_step(self):
         if isinstance(self.means, nn.Sequential):
 
-            def run_means_attention_step(*args, **kwargs):
+            return self.means[0].attention_step
 
-                x = self.means[0].attention_step(*args, **kwargs)
+            # def run_means_attention_step(*args, **kwargs):
 
-                if isinstance(x, (tuple, list)):
-                    for i in range(1, len(self.means)):
-                        x = [self.means[i](elem) for elem in x]
-                else:
-                    for i in range(1, len(self.means)):
-                        x = self.means[i](x)
+            #     x = self.means[0].attention_step(*args, **kwargs)
+
+            #     if isinstance(x, (tuple, list)):
+            #         for i in range(1, len(self.means)):
+            #             x = [self.means[i](elem) for elem in x]
+            #     else:
+            #         for i in range(1, len(self.means)):
+            #             x = self.means[i](x)
                 
-                return x
+            #     return x
 
-            return run_means_attention_step
+            # return run_means_attention_step
         
         return self.means.attention_step
     def means_output_step(self):
@@ -173,13 +176,13 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
             return run_means_output_step
         
         return self.means.output_step
-
-    def stds_attention_step(self):
+    
+    def stds_output_step(self):
         if isinstance(self.stds, nn.Sequential):
 
-            def run_stds_attention_step(*args, **kwargs):
+            def run_stds_output_step(*args, **kwargs):
 
-                x = self.stds[0].attention_step(*args, **kwargs)
+                x = self.stds[0].output_step(*args, **kwargs)
 
                 if isinstance(x, (tuple, list)):
                     for i in range(1, len(self.stds)):
@@ -190,7 +193,29 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
                 
                 return x
 
-            return run_stds_attention_step
+            return run_stds_output_step
+        
+        return self.stds.output_step
+
+    def stds_attention_step(self):
+        if isinstance(self.stds, nn.Sequential):
+            
+            return self.stds[0].attention_step
+
+        #     def run_stds_attention_step(*args, **kwargs):
+
+        #         x = self.stds[0].attention_step(*args, **kwargs)
+
+        #         if isinstance(x, (tuple, list)):
+        #             for i in range(1, len(self.stds)):
+        #                 x = [self.stds[i](elem) for elem in x]
+        #         else:
+        #             for i in range(1, len(self.stds)):
+        #                 x = self.stds[i](x)
+                
+        #         return x
+
+        #     return run_stds_attention_step
         
         return self.stds.attention_step if self.stds else None
 
@@ -207,6 +232,11 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
             self.end_activation,
         )
 
+    def raw_attention_step(self, input):
+        means = self.means_attention_step()(input)
+        stds = self.stds_attention_step()(input)
+        return (means, stds)
+
     def output_step(self, input):
         return self.means_output_step()(input)
         # return multi_output_variational_forward(
@@ -220,6 +250,15 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
         #     self.end_batch_norm,
         #     self.end_activation,
         # )
+    
+    def variational_output_step(self, input):
+
+        means = self.means_output_step()(input[0])
+        stds = self.stds_output_step()(input[1])
+
+        return multi_output_variational_gaussian_sample(
+            means, stds, self.global_std_mode, VariationalBase.GLOBAL_STD, VariationalBase.FIX_GAUSSIAN
+        )
 
     def all_steps(self, input):
         return multi_output_variational_forward(
