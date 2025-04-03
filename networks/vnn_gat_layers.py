@@ -141,21 +141,6 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
 
             return self.means[0].attention_step
 
-            # def run_means_attention_step(*args, **kwargs):
-
-            #     x = self.means[0].attention_step(*args, **kwargs)
-
-            #     if isinstance(x, (tuple, list)):
-            #         for i in range(1, len(self.means)):
-            #             x = [self.means[i](elem) for elem in x]
-            #     else:
-            #         for i in range(1, len(self.means)):
-            #             x = self.means[i](x)
-                
-            #     return x
-
-            # return run_means_attention_step
-        
         return self.means.attention_step
     def means_output_step(self):
         if isinstance(self.means, nn.Sequential):
@@ -201,21 +186,6 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
         if isinstance(self.stds, nn.Sequential):
             
             return self.stds[0].attention_step
-
-        #     def run_stds_attention_step(*args, **kwargs):
-
-        #         x = self.stds[0].attention_step(*args, **kwargs)
-
-        #         if isinstance(x, (tuple, list)):
-        #             for i in range(1, len(self.stds)):
-        #                 x = [self.stds[i](elem) for elem in x]
-        #         else:
-        #             for i in range(1, len(self.stds)):
-        #                 x = self.stds[i](x)
-                
-        #         return x
-
-        #     return run_stds_attention_step
         
         return self.stds.attention_step if self.stds else None
 

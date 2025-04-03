@@ -308,7 +308,7 @@ class MultiOutputVariationalBase(VariationalBase):
             batch_norm_momentum=batch_norm_momentum,
             global_std_mode=global_std_mode,
         )
-        
+
         run_means = lambda *args, **kwargs: means(*args, **kwargs)
         run_stds = lambda *args, **kwargs: stds(*args, **kwargs)
 

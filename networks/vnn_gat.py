@@ -125,13 +125,13 @@ class VariationalBatchGAT(nn.Module):
             return result
 
 
-def filter_attentions(att, att_var, limit=0.5):
+def filter_attentions(att, att_var, limit=0.5, filtered_value=0.01):
     att_var = att_var / (att + 1e-6)
 
     if limit > 0:
-        att[att_var > limit] = 0
+        att[att_var > limit] = filtered_value
     else:
-        att[att_var < -limit] = 0.01
+        att[att_var < -limit] = filtered_value
 
     return att
 

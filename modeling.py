@@ -393,8 +393,8 @@ def uncertainty_aware(
     run_experiments(experiments, devices, processes_per_device, debug)
 
 
-def uncertainty_aware_from_best_vgat(
-    networks=["uavgat"], devices=8, processes_per_device=1, debug=False
+def train_uncertainty_aware_from_best_vgat(
+    networks=["uaeavgat"], devices=8, processes_per_device=1, debug=False
 ):
 
     if not isinstance(devices, list):
@@ -403,7 +403,7 @@ def uncertainty_aware_from_best_vgat(
     experiments = []
 
     for net in networks:
-        for samples in [7]:
+        for samples in [7, 2]:
             for activation_mode in ["mean"]:
                 for use_batch_norm in [False]:
                     for global_std_mode in ["multiply"]:
@@ -469,7 +469,7 @@ def uncertainty_aware_from_best_vgat(
 
 
 def train_vgat_for_unecrtainty_aware(
-    networks=["vgat"], devices=8, processes_per_device=3, debug=False
+    networks=["vgat"], devices=8, processes_per_device=2, debug=False
 ):
 
     if not isinstance(devices, list):
@@ -547,7 +547,7 @@ def test_uncertainty_aware_from_best_vgat(
                             for init_vnn_name, init_vnn_weights in [
                                 ("xnfb0x2", "xavier_normal_fb:stds:0.01:0.001"),
                             ]:
-                                for attention_filter_limit in [0.1, 0.5, 0.7, 1, 10, -0.1, -0.5, -0.7, -1, -10]:
+                                for attention_filter_limit in [0.01, 0.02, 0.1, 0.5, 0.7, 1, 10, -0.1, -0.5, -0.7, -1, -10]:
 
                                     if global_std_mode == "none":
                                         gstds = [0]
