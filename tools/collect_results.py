@@ -44,6 +44,9 @@ MODEL_TYPE_FLAGS = [
     "vnn_gcn_ivb",
     "vnn_gat_ivo",
     "vnn_gcn_ivo",
+    "uavgat",
+    "uaeavgat",
+    "uafmcivgat",
     "original",
 ]
 
@@ -365,7 +368,7 @@ def show_inclusion_table(
                         return
 
                     experiments = [
-                        exp for exp in experiments if not has_filtered_flags(exp)
+                        exp for exp in experiments if (not has_filtered_flags(exp)) and not (exp.network_type in exlcude_model_types)
                     ]
 
                     experiments = sorted(
@@ -559,6 +562,13 @@ def show_inclusion_table(
 
 
 def plot_single_frame(frame, output_file_name, model_type_order):
+
+    frame.horizon = Categorical(frame.horizon, 
+        ordered=True,
+        categories=[
+            "Lead-lag", "Simultaneous", "Mean"
+        ]
+    )
 
     plot = (
         ggplot(frame)

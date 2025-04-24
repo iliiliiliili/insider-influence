@@ -130,10 +130,12 @@ def filter_attentions(att, att_var, limit=0.5, filtered_value=0.01):
 
     if limit > 0:
         att[att_var > limit] = filtered_value
+        att_var[att_var > limit] = 0
     else:
         att[att_var < -limit] = filtered_value
+        att_var[att_var < -limit] = 0
 
-    return att
+    return att, att_var
 
 
 class UncertaintyAwareEarlyAttentionVariationalBatchGAT(nn.Module):
@@ -318,7 +320,7 @@ class UncertaintyAwareEarlyAttentionVariationalBatchGAT(nn.Module):
                 torch.stack(all_attentions[i], dim=0), dim=0, unbiased=False
             )
 
-            attention_filtered = filter_attentions(att, att_var, self.attention_filter_limit)
+            attention_filtered, _ = filter_attentions(att, att_var, self.attention_filter_limit)
 
             attentions[i] = (att, att_var)
 
@@ -541,11 +543,13 @@ class UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT(nn.M
             input_xs = output_xs
             output_xs = []
             h_primes = []
+            raw_attentions = []
 
             for s in range(samples):
                 x = input_xs.pop(0)
-                h_prime, attention = gat_layer.attention_step((x, adj))
-                h_primes.append(h_prime)
+                ((h_prime_means, attention_means), (h_prime_stds, attention_stds)) = gat_layer.raw_attention_step((x, adj))
+                attention = gat_layer.variational_attention_sample(attention_means, attention_stds)[0]
+                h_primes.append((h_prime_means, h_prime_stds))
                 # x = gat_layer.output_step((h_prime, attention))[0]  # bs x n_head x n x f_out
                 # x, attention = gat_layer.all_steps((x, adj))
 
@@ -553,21 +557,27 @@ class UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT(nn.M
                     all_attentions[i] = []
 
                 all_attentions[i].append(attention)
+                raw_attentions.append((attention_means, attention_stds))
                 # output_xs.append(x)
 
             att_var, att = torch.var_mean(
                 torch.stack(all_attentions[i], dim=0), dim=0, unbiased=False
             )
 
-            attention_filtered = filter_attentions(att, att_var, self.attention_filter_limit)
+            attention_filtered, attention_var_filtered = filter_attentions(att, att_var, self.attention_filter_limit)
 
             attentions[i] = (att, att_var)
 
             for s in range(samples):
-                h_prime = h_primes.pop(0)
-                x = gat_layer.output_step((h_prime, attention_filtered))[
+                (h_prime_means, h_prime_stds) = h_primes.pop(0)
+                (attention_means, attention_stds) = raw_attentions.pop(0)
+                raw_attention_filtered, raw_attention_stds_filtered = filter_attentions(attention_means, att_var, self.attention_filter_limit)
+                x = gat_layer.variational_output_step(((h_prime_means, raw_attention_filtered), (h_prime_stds, raw_attention_stds_filtered)))[
                     0
                 ]  # bs x n_head x n x f_out
+                # x = gat_layer.variational_output_step(((h_prime_means, attention_filtered), (h_prime_stds, attention_var_filtered)))[
+                #     0
+                # ]  # bs x n_head x n x f_out
                 output_xs.append(x)
 
             if i + 1 == self.n_layer:

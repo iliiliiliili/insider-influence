@@ -229,6 +229,12 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
         return multi_output_variational_gaussian_sample(
             means, stds, self.global_std_mode, VariationalBase.GLOBAL_STD, VariationalBase.FIX_GAUSSIAN
         )
+    
+    def variational_attention_sample(self, attention_means, attention_stds):
+
+        return multi_output_variational_gaussian_sample(
+            attention_means, attention_stds, self.global_std_mode, VariationalBase.GLOBAL_STD, VariationalBase.FIX_GAUSSIAN
+        )
 
     def all_steps(self, input):
         return multi_output_variational_forward(
