@@ -23,7 +23,11 @@ from sklearn.metrics import (
 from statistics import stdev, mean
 from fire import Fire
 
-from networks.vnn_gat import VariationalBatchGAT, UncertaintyAwareEarlyAttentionVariationalBatchGAT, UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT
+from networks.vnn_gat import (
+    VariationalBatchGAT,
+    UncertaintyAwareEarlyAttentionVariationalBatchGAT,
+    UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT,
+)
 from networks.vnn_gcn import VariationalBatchGCN
 from draw import draw_uncertain_attention_graphs, draw_uncertain_attentions
 
@@ -461,6 +465,7 @@ def main(
     test_with_uncertainty=False,
     draw_uncertainty_graphs=False,
     dataset_folder="data",
+    dataset_dimensions=66,
     load_model_from_architecture=None,
     override_horizon=None,
     override_frequency=None,
@@ -470,7 +475,7 @@ def main(
     name_for_loading=None,
     **vnn_kwargs,
 ):
-    
+
     if not isinstance(networks, list):
         networks = [networks]
 
@@ -484,9 +489,13 @@ def main(
 
     datasets: List[Tuple[str, str, str, str]] = []
     for architecture in networks:
-        for horizon in [override_horizon] if override_horizon else ["Lead-lag", "Simultaneous"]:
+        for horizon in (
+            [override_horizon] if override_horizon else ["Lead-lag", "Simultaneous"]
+        ):
             for frequency in [override_frequency] if override_frequency else ["D", "W"]:
-                for direction in [override_direction] if override_direction else ["Buy", "Sell"]:
+                for direction in (
+                    [override_direction] if override_direction else ["Buy", "Sell"]
+                ):
                     datasets.append((architecture, horizon, frequency, direction))
 
     # Main result for best GCN and GAT architectures
@@ -504,15 +513,17 @@ def main(
 
     for architecture, horizon, frequency, direction in datasets:
 
-        single_model_result = {
-            "f1": [],
-            "auc": [],
-            "non_own_f1": [],
-            "non_own_auc": [],
-            "insiders_non_own_f1": [],
-            "insiders_non_own_auc": [],
-            "seeds": seeds,
-        }
+        single_model_result = [
+            {
+                "f1": [],
+                "auc": [],
+                "non_own_f1": [],
+                "non_own_auc": [],
+                "insiders_non_own_f1": [],
+                "insiders_non_own_auc": [],
+                "seeds": seeds,
+            }
+        ]
 
         if is_variational_model(architecture):
             runs = runs_per_variational_model
@@ -712,7 +723,7 @@ def main(
                     samples=train_samples,
                 )
             else:
-                
+
                 if load_model_from_architecture is None:
                     test_model_path = model_path
                 else:
@@ -742,6 +753,8 @@ def main(
             else:
                 class_weight = torch.ones(test_loader.dataset.n_classes)
 
+            test_samples = test_samples if test_samples is not None else [None]
+
             for r in range(runs):
                 for i, samples in enumerate(test_samples):
 
@@ -753,7 +766,8 @@ def main(
                         end="\r",
                     )
 
-                    single_model_result[i]["test_samples"] = samples
+                    if samples is not None:
+                        single_model_result[i]["test_samples"] = samples
 
                     if test_with_uncertainty:
 
@@ -898,6 +912,7 @@ def main(
                         single_model_result[i][key + "_std"] = std
 
         else:
+            single_model_result = single_model_result[0]
             keys = [*single_model_result.keys()]
             for key in keys:
                 if key != "seeds":

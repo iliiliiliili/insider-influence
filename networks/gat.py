@@ -35,7 +35,7 @@ class BatchGAT(nn.Module):
         # 1790 is the total number of nodes in the network.
         self.embedding = nn.Embedding(1790, 64)
         self.embedding.weight.requires_grad = fine_tune
-        n_units[0] += 64
+        # n_units[0] += 64
 
         self.layer_stack = nn.ModuleList()
         for i in range(self.n_layer):

@@ -226,10 +226,10 @@ def base_experiment_all(
         )
 
     for net in vnn_networks:
-        for samples in range(2, 10):
-            for activation_mode in VariationalBase.ALL_ACTIVATION_MODES:
-                for use_batch_norm in [False, True]:
-                    for global_std_mode in VariationalBase.ALL_GLOBAL_STD_MODES:
+        for samples in [2, 7]:
+            for activation_mode in ["mean"]:
+                for use_batch_norm in [False]:
+                    for global_std_mode in ["multiply"]:
 
                         if global_std_mode == "none":
                             gstds = [0]
@@ -261,10 +261,10 @@ def base_experiment_all(
                             )
 
     for net in vnn_networks:
-        for samples in range(2, 10):
-            for activation_mode in VariationalBase.ALL_ACTIVATION_MODES:
-                for use_batch_norm in [True, False]:
-                    for global_std_mode in VariationalBase.ALL_GLOBAL_STD_MODES:
+        for samples in [2, 7]:
+            for activation_mode in ["mean"]:
+                for use_batch_norm in [False]:
+                    for global_std_mode in ["multiply"]:
                         for init_from in ["baselines", "original"]:
                             for init_vnn_name, init_vnn_weights in [
                                 ("usual", "usual"),

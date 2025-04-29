@@ -228,7 +228,7 @@ class AnonymizedInfluenceDataSet(Dataset):
         return graphs
 
     def get_feature_dimension(self):
-        return self.influence_features.shape[-1]
+        return self.influence_features.shape[-1] + self.normalized_embeddings.shape[-1]
 
     def get_num_class(self):
         return np.unique(self.labels).shape[0]
