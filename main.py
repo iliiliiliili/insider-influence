@@ -473,6 +473,7 @@ def main(
     evaluation_result_subfolder=None,
     model_name_suffix=None,
     name_for_loading=None,
+    result_suffix="",
     **vnn_kwargs,
 ):
 
@@ -924,7 +925,7 @@ def main(
             Path(results_folder)
             / path
             / name
-            / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}"
+            / f"{architecture}{model_name_suffix}{vnn_subname}{result_suffix}_{horizon}_{frequency}_{direction}"
         )
 
         if evaluation_result_subfolder is not None:

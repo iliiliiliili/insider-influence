@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 
-def multi_output_variational_gaussian_sample(means, stds, global_std_mode, GLOBAL_STD, FIX_GAUSSIAN, split=None):
+def multi_output_variational_gaussian_sample(means, stds, global_std_mode, GLOBAL_STD, FIX_GAUSSIAN, split=None, fix_gaussian_storage=None, batch_dimension=0):
 
     if global_std_mode == "replace":
         stds = [GLOBAL_STD for _ in range(len(means))]
@@ -14,14 +14,31 @@ def multi_output_variational_gaussian_sample(means, stds, global_std_mode, GLOBA
     if split is None:
         split = [False for _ in range(len(means))]
 
-    if FIX_GAUSSIAN is None:
+    if (FIX_GAUSSIAN is None) or (FIX_GAUSSIAN == False):
         result = [
             (m, s) if spl else m + s * torch.normal(0, torch.ones_like(m)) for m, s, spl in zip(means, stds, split)
         ]
     else:
-        result = [
-            (m, s) if spl else m + s * FIX_GAUSSIAN * torch.ones_like(m) for m, s, spl in zip(means, stds, split)
-        ]
+
+        if FIX_GAUSSIAN == True:
+
+            if not hasattr(fix_gaussian_storage, "fix_gaussian_value") or fix_gaussian_storage.fix_gaussian_value is None:
+
+                shapes_and_devices = [([*m.shape], m.device) for m in means]
+
+                for s in shapes_and_devices:
+                    s[0][batch_dimension] = 1
+
+                fix_gaussian_storage.fix_gaussian_value = [torch.normal(0, torch.ones(s[0], device=s[1])) for s in shapes_and_devices]
+
+            result = [
+                (m, s) if spl else m + s * fgv for m, s, spl, fgv in zip(means, stds, split, fix_gaussian_storage.fix_gaussian_value)
+            ]
+        else:
+
+            result = [
+                (m, s) if spl else m + s * FIX_GAUSSIAN * torch.ones_like(m) for m, s, spl in zip(means, stds, split)
+            ]
     
     return result
 
@@ -36,6 +53,7 @@ def multi_output_variational_forward(
     end_batch_norm,
     end_activation,
     split=None,
+    fix_gaussian_storage=None,
 ):
     means = means_module(x)
 
@@ -65,7 +83,7 @@ def multi_output_variational_forward(
             )
 
     result = multi_output_variational_gaussian_sample(
-        means, stds, global_std_mode, GLOBAL_STD, FIX_GAUSSIAN, split)
+        means, stds, global_std_mode, GLOBAL_STD, FIX_GAUSSIAN, split, fix_gaussian_storage)
 
     if end_batch_norm is not None:
         result = [end_batch_norm(r) for r in result]
@@ -236,13 +254,24 @@ class VariationalBase(nn.Module):
                 "mean",
                 float(torch.mean(means).detach()),
             )
-
-        if VariationalBase.FIX_GAUSSIAN is None:
+        
+        if (VariationalBase.FIX_GAUSSIAN is None) or (VariationalBase.FIX_GAUSSIAN == False):
             result = means + stds * torch.normal(0, torch.ones_like(means))
         else:
-            result = means + stds * VariationalBase.FIX_GAUSSIAN * torch.ones_like(
-                means
-            )
+
+            if VariationalBase.FIX_GAUSSIAN == True:
+
+                shape = [*means.shape]
+                shape[0] = 1
+
+                if not hasattr(self, "fix_gaussian_value") or self.fix_gaussian_value is None:
+                    self.fix_gaussian_value = torch.normal(0, torch.ones(shape, device=means.device))
+
+                result = means + stds * VariationalBase.FIX_GAUSSIAN * self.fix_gaussian_value
+            else:
+                result = means + stds * VariationalBase.FIX_GAUSSIAN * torch.ones_like(
+                    means
+                )
 
         if self.end_batch_norm is not None:
             result = self.end_batch_norm(result)
@@ -362,6 +391,7 @@ class MultiOutputVariationalBase(VariationalBase):
             VariationalBase.GLOBAL_STD,
             self.end_batch_norm,
             self.end_activation,
+            fix_gaussian_storage = self,
         )
 
 

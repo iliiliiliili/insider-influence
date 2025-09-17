@@ -190,6 +190,7 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
         return self.stds.attention_step if self.stds else None
 
     def attention_step(self, input):
+
         return multi_output_variational_forward(
             self.means_attention_step(),
             self.stds_attention_step(),
@@ -200,6 +201,7 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
             VariationalBase.GLOBAL_STD,
             self.end_batch_norm,
             self.end_activation,
+            fix_gaussian_storage = self,
         )
 
     def raw_attention_step(self, input):
@@ -227,13 +229,15 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
         stds = self.stds_output_step()(input[1])
 
         return multi_output_variational_gaussian_sample(
-            means, stds, self.global_std_mode, VariationalBase.GLOBAL_STD, VariationalBase.FIX_GAUSSIAN
+            means, stds, self.global_std_mode, VariationalBase.GLOBAL_STD, VariationalBase.FIX_GAUSSIAN, 
+            fix_gaussian_storage = self,
         )
     
     def variational_attention_sample(self, attention_means, attention_stds):
 
         return multi_output_variational_gaussian_sample(
-            attention_means, attention_stds, self.global_std_mode, VariationalBase.GLOBAL_STD, VariationalBase.FIX_GAUSSIAN
+            attention_means, attention_stds, self.global_std_mode, VariationalBase.GLOBAL_STD, VariationalBase.FIX_GAUSSIAN, 
+            fix_gaussian_storage = self,
         )
 
     def all_steps(self, input):
@@ -247,6 +251,7 @@ class VariationalBatchMultiHeadGraphAttention(MultiOutputVariationalBase):
             VariationalBase.GLOBAL_STD,
             self.end_batch_norm,
             self.end_activation,
+            fix_gaussian_storage = self,
         )
 
 
