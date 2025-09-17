@@ -1,5 +1,7 @@
 [![DOI](https://zenodo.org/badge/513898679.svg)](https://zenodo.org/badge/latestdoi/513898679)
 
+# Implementation of [Variational Graph Convolutional Neural Networks](https://arxiv.org/abs/2507.01699) for financial data analysis. 
+
 # Model performance
 
 The model performance for different data sets and scenarios can be retrieved by running public_main.py
