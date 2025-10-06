@@ -40,6 +40,8 @@ MODEL_TYPE_FLAGS = [
     "baselines",
     "vnn_gat",
     "vnn_gcn",
+    "dropout_gcn",
+    "dropout_gat",
     "vnn_gat_ivb",
     "vnn_gcn_ivb",
     "vnn_gat_ivo",
@@ -61,10 +63,16 @@ def transform_model_type_for_plotting(model_type):
     if model_type in ["vnn_gcn"]:
         return "vgcn"
 
+    if model_type in ["dropout_gcn"]:
+        return "dropoutgcn"
+
     if model_type in ["vnn_gat_ivb", "vnn_gat_ivo"]:
         return "ivgat"
     if model_type in ["vnn_gcn_ivb", "vnn_gcn_ivo"]:
         return "ivgcn"
+
+    if model_type in ["dropout_gat"]:
+        return "dropoutgat"
 
     return model_type
 
@@ -250,8 +258,10 @@ def create_mean_results(experiments: List[Experiment]):
 def show_inclusion_table(
     experiments: List[Experiment],
     experiments_per_group,
-    exlcude_model_types=[],
+    exclude_model_types=[],
+    allow_model_types=None,
     show_empty=True,
+    frame_extra_flags=[],
 ):
 
     experiments = experiments + create_mean_results(experiments)
@@ -259,7 +269,11 @@ def show_inclusion_table(
     extra_flags = set()
     value_flags = set()
 
-    for experiment in experiments:
+    for i, experiment in enumerate(experiments):
+        
+        if i % 5000 == 0:
+            print(".", end="")
+
         for flag in experiment.flags:
 
             if isinstance(flag, tuple):
@@ -297,18 +311,27 @@ def show_inclusion_table(
     ]
     table = []
     raw_table = []
-    data_frame = {
-        "horizon": [],
-        "frequency": [],
-        "direction": [],
-        "Model Type": [],
-        "Network": [],
-        "F1": [],
-        "f1 std": [],
-        "auc": [],
-        "s": [],
-        "ts": [],
-    }
+
+    base_data_frame_entries = [
+        "horizon",
+        "frequency",
+        "direction",
+        "Model Type",
+        "Network",
+        "F1",
+        "f1 std",
+        "auc",
+        "s",
+        "ts",
+    ]
+
+    data_frame = {}
+
+    for f in base_data_frame_entries:
+        data_frame[f] = []
+
+    for f in frame_extra_flags:
+        data_frame[f[1]] = []
 
     def colored_line(color, line):
 
@@ -355,7 +378,12 @@ def show_inclusion_table(
                 print(".", end="")
 
                 for model_type in MODEL_TYPE_FLAGS:
-                    if model_type in exlcude_model_types:
+                    if model_type in exclude_model_types:
+                        continue
+                    if (
+                        allow_model_types is not None
+                        and model_type not in allow_model_types
+                    ):
                         continue
 
                     experiments = groups[horizon][frequency][direction][model_type]
@@ -363,12 +391,22 @@ def show_inclusion_table(
                     def has_filtered_flags(exp: Experiment):
                         for f in exp.flags:
                             if isinstance(f, tuple):
-                                if f[0] == "iv_base" and f[1] in exlcude_model_types:
+                                if f[0] == "iv_base" and (
+                                    f[1] in exclude_model_types
+                                    or (
+                                        allow_model_types is not None
+                                        and f[1] in allow_model_types
+                                    )
+                                ):
                                     return True
-                        return
+                        return False
 
                     experiments = [
-                        exp for exp in experiments if (not has_filtered_flags(exp)) and not (exp.network_type in exlcude_model_types)
+                        exp
+                        for exp in experiments
+                        if (not has_filtered_flags(exp))
+                        and not (exp.network_type in exclude_model_types)
+                        and (allow_model_types is None or exp.network_type in allow_model_types)
                     ]
 
                     experiments = sorted(
@@ -394,7 +432,12 @@ def show_inclusion_table(
                         continue
 
                 for model_type in MODEL_TYPE_FLAGS:
-                    if model_type in exlcude_model_types:
+                    if model_type in exclude_model_types:
+                        continue
+                    if (
+                        allow_model_types is not None
+                        and model_type not in allow_model_types
+                    ):
                         continue
 
                     experiments_exist = False
@@ -444,7 +487,7 @@ def show_inclusion_table(
                             is_best_in_subset = True
                             for compare_model_type in MODEL_TYPE_FLAGS:
                                 if (model_type != compare_model_type) and (
-                                    compare_model_type not in exlcude_model_types
+                                    compare_model_type not in exclude_model_types
                                 ):
 
                                     if (
@@ -515,6 +558,9 @@ def show_inclusion_table(
                         data_frame["ts"].append(
                             0 if best_result.samples == -1 else best_result.samples
                         )
+                        for f in frame_extra_flags:
+                            if f[1] not in base_data_frame_entries:
+                                data_frame[f[1]].append(flag_to_text(f[1]))
 
                     if (not experiments_exist) and show_empty:
 
@@ -561,13 +607,14 @@ def show_inclusion_table(
     return data_frame
 
 
-def plot_single_frame(frame, output_file_name, model_type_order):
+def plot_single_frame(frame, output_file_name, model_type_order, plots_extra_flags=[]):
 
-    frame.horizon = Categorical(frame.horizon, 
-        ordered=True,
-        categories=[
-            "Lead-lag", "Simultaneous", "Mean"
-        ]
+    extra_aes = {"color": "Network"}
+    for k, v in plots_extra_flags:
+        extra_aes[k] = v
+
+    frame.horizon = Categorical(
+        frame.horizon, ordered=True, categories=["Lead-lag", "Simultaneous", "Mean"]
     )
 
     plot = (
@@ -575,7 +622,7 @@ def plot_single_frame(frame, output_file_name, model_type_order):
         + aes(x="F1", y="Model Type")
         + facet_wrap(["horizon", "frequency", "direction"], ncol=2)
         + geom_point(
-            aes(color="Network"),
+            aes(**extra_aes),
             size=1.5,
             # position=position_dodge(width=0.8),
             # stroke=0.2,
@@ -646,6 +693,12 @@ def find_experiments(
                 i += 1
             elif params[i] == "gstd-mode":
                 flags.append(("gstd-m", params[i + 1]))
+                i += 1
+            elif params[i] == "dropout-probability":
+                flags.append(("drop-p", params[i + 1]))
+                i += 1
+            elif params[i] == "dropout-type":
+                flags.append(("drop-t", params[i + 1]))
                 i += 1
             elif params[i] == "gstd":
                 flags.append(("gstd", params[i + 1]))
@@ -728,30 +781,48 @@ def find_experiments(
 def main(
     root="./results",
     plots_folder="plots",
-    exlcude_model_types=[],
+    exclude_model_types=[],
+    allow_model_types=None,
     experiments_per_group=10,
+    plots_extra_flags=[],
+    plot_name="insider-results",
+    model_type_order=[
+        "original",
+        "ivgat",
+        "vgat",
+        "dropoutgat",
+        "ivgcn",
+        "vgcn",
+        "dropoutgcn",
+        "baselines",
+    ],
 ):
 
-    if not isinstance(exlcude_model_types, list):
-        exlcude_model_types = [exlcude_model_types]
+    if not isinstance(exclude_model_types, list):
+        exclude_model_types = [exclude_model_types]
+
+    if not isinstance(allow_model_types, list):
+        allow_model_types = [allow_model_types] if allow_model_types is not None else None
 
     all_experiments = find_experiments(root, root)
 
     data_frame = show_inclusion_table(
         all_experiments,
-        exlcude_model_types=exlcude_model_types,
+        exclude_model_types=exclude_model_types,
+        allow_model_types=allow_model_types,
         experiments_per_group=experiments_per_group,
+        frame_extra_flags=plots_extra_flags,
     )
 
-    # model_type_order = ["original", "ivnn", "vnn", "baselines"]
-    model_type_order = ["original", "ivgat", "vgat", "ivgcn", "vgcn", "baselines"]
-
-    for t in exlcude_model_types:
+    for t in exclude_model_types:
         if t in model_type_order:
             model_type_order.remove(t)
 
     plot_single_frame(
-        data_frame, Path(plots_folder) / "insider-results.png", model_type_order
+        data_frame,
+        Path(plots_folder) / f"{plot_name}.png",
+        model_type_order,
+        plots_extra_flags=plots_extra_flags,
     )
 
 
@@ -784,12 +855,21 @@ def uncertainty_aware(
 
     data_frame = show_inclusion_table(
         all_experiments,
-        exlcude_model_types=exlcude_model_types,
+        exclude_model_types=exlcude_model_types,
         experiments_per_group=experiments_per_group,
     )
 
     # model_type_order = ["original", "ivnn", "vnn", "baselines"]
-    model_type_order = ["original", "ivgat", "vgat", "ivgcn", "vgcn", "baselines"]
+    model_type_order = [
+        "original",
+        "ivgat",
+        "vgat",
+        "ivgcn",
+        "vgcn",
+        "dropoutgcn",
+        "dropoutgat",
+        "baselines",
+    ]
 
     for t in exlcude_model_types:
         if t in model_type_order:

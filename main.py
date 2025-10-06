@@ -29,6 +29,8 @@ from networks.vnn_gat import (
     UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT,
 )
 from networks.vnn_gcn import VariationalBatchGCN
+from networks.dropout_gcn import DropoutBatchGCN
+from networks.dropout_gat import DropoutBatchGAT
 from draw import draw_uncertain_attention_graphs, draw_uncertain_attentions
 
 
@@ -406,7 +408,9 @@ def get_parameters(
 
     architecture_for_parameters = {
         "vgcn": "gcn",
+        "dropoutgcn": "gcn",
         "vgat": "gat",
+        "dropoutgat": "gat",
         "uaeavgat": "gat",
         "uafmcivgat": "gat",
         "gcn": "gcn",
@@ -442,7 +446,7 @@ def get_parameters(
 
 
 def is_variational_model(architecture):
-    return architecture in ["vgcn", "vgat", "uaeavgat", "uafmcivgat"]
+    return architecture in ["vgcn", "vgat", "dropoutgcn", "dropoutgat", "uaeavgat", "uafmcivgat"]
 
 
 def main(
@@ -474,7 +478,7 @@ def main(
     model_name_suffix=None,
     name_for_loading=None,
     result_suffix="",
-    **vnn_kwargs,
+    **model_kwargs,
 ):
 
     if not isinstance(networks, list):
@@ -625,7 +629,12 @@ def main(
             elif args["model"] == "vgcn":
                 model = VariationalBatchGCN(
                     n_units=n_units,
-                    **vnn_kwargs,
+                    **model_kwargs,
+                )
+            elif args["model"] == "dropoutgcn":
+                model = DropoutBatchGCN(
+                    n_units=n_units,
+                    **model_kwargs,
                 )
             elif args["model"] == "gat":
                 n_heads = [int(x) for x in args["heads"].strip().split(",")]
@@ -639,21 +648,28 @@ def main(
                 model = VariationalBatchGAT(
                     n_units=n_units,
                     n_heads=n_heads,
-                    **vnn_kwargs,
+                    **model_kwargs,
+                )
+            elif args["model"] == "dropoutgat":
+                n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                model = DropoutBatchGAT(
+                    n_units=n_units,
+                    n_heads=n_heads,
+                    **model_kwargs,
                 )
             elif args["model"] == "uaeavgat":
                 n_heads = [int(x) for x in args["heads"].strip().split(",")]
                 model = UncertaintyAwareEarlyAttentionVariationalBatchGAT(
                     n_units=n_units,
                     n_heads=n_heads,
-                    **vnn_kwargs,
+                    **model_kwargs,
                 )
             elif args["model"] == "uafmcivgat":
                 n_heads = [int(x) for x in args["heads"].strip().split(",")]
                 model = UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT(
                     n_units=n_units,
                     n_heads=n_heads,
-                    **vnn_kwargs,
+                    **model_kwargs,
                 )
             else:
                 raise NotImplementedError

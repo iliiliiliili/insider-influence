@@ -6,13 +6,13 @@ from networks.variational import VariationalBase
 import random
 
 
-def vnn_base_name(vnn_name):
-    if "gat" in vnn_name:
+def model_base_name(full_name):
+    if "gat" in full_name:
         return "gat"
-    if "gcn" in vnn_name:
+    if "gcn" in full_name:
         return "gcn"
 
-    return vnn_name
+    return full_name
 
 
 def run_experiments(experiments, devices, processes_per_device, debug=False):
@@ -84,7 +84,7 @@ def vnn(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug=Fals
         for samples in range(2, 10):
             experiments.append(
                 (
-                    ["train", f"n", net, f"vnn_{vnn_base_name(net)}"],
+                    ["train", f"n", net, f"vnn_{model_base_name(net)}"],
                     {"train_samples": samples},
                 )
             )
@@ -119,7 +119,7 @@ def vnn_all(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug=
 
                             experiments.append(
                                 (
-                                    ["train", name, net, f"vnn_{vnn_base_name(net)}"],
+                                    ["train", name, net, f"vnn_{model_base_name(net)}"],
                                     {
                                         "train_samples": samples,
                                         "batch_norm_mode": activation_mode,
@@ -130,6 +130,35 @@ def vnn_all(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug=
                                     },
                                 )
                             )
+
+    run_experiments(experiments, devices, processes_per_device, debug)
+
+
+def dropout_all(networks=["dropoutgcn", "dropoutgat"], devices=8, processes_per_device=3, debug=False):
+
+    if not isinstance(devices, list):
+        devices = [f"cuda:{d}" for d in range(devices)]
+
+    experiments = []
+
+    for net in networks:
+        for samples in [1, 10]:
+            for dropout_probability in [0.05, 0.1, 0.3, 0.5]:
+                for dropout_type in ["standard", "alpha", "feature_alpha"]:
+                    name = (
+                        f"dropout-probability_{dropout_probability}/dropout-type_{dropout_type}"
+                    )
+
+                    experiments.append(
+                        (
+                            ["train", name, net, f"dropout_{model_base_name(net)}"],
+                            {
+                                "train_samples": samples,
+                                "dropout_probability": dropout_probability,
+                                "dropout_type": dropout_type,
+                            },
+                        )
+                    )
 
     run_experiments(experiments, devices, processes_per_device, debug)
 
@@ -179,7 +208,7 @@ def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug
                                                 "train",
                                                 name,
                                                 net,
-                                                f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
                                             ],
                                             {
                                                 "train_samples": samples,
@@ -188,7 +217,7 @@ def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug
                                                 "use_batch_norm": use_batch_norm,
                                                 "global_std_mode": global_std_mode,
                                                 "GLOBAL_STD": gstd,
-                                                "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
                                                 "INIT_WEIGHTS": init_vnn_weights,
                                                 "init_vnn_from_original": init_from
                                                 == "original",
@@ -199,7 +228,7 @@ def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug
     run_experiments(experiments, devices, processes_per_device, debug)
 
 
-def test_vnn_init_fixed_sample(networks=["vgcn", "vgat"], devices=6, processes_per_device=3, debug=False):
+def test_vnn_init_fixed_sample(networks=["vgcn", "vgat"], devices=6, processes_per_device=1, debug=False):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -209,7 +238,7 @@ def test_vnn_init_fixed_sample(networks=["vgcn", "vgat"], devices=6, processes_p
     for net in networks:
         for samples in [2, 7]:
             for activation_mode in ["mean"]:
-                for use_batch_norm in [True, False]:
+                for use_batch_norm in [False]:
                     for global_std_mode in ["none", "multiply"]:
                         for init_from in ["baselines", "original"]:
                             for init_vnn_name, init_vnn_weights in [
@@ -238,7 +267,7 @@ def test_vnn_init_fixed_sample(networks=["vgcn", "vgat"], devices=6, processes_p
                                                 "test",
                                                 name,
                                                 net,
-                                                f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
                                             ],
                                             {
                                                 "train_samples": samples,
@@ -247,7 +276,7 @@ def test_vnn_init_fixed_sample(networks=["vgcn", "vgat"], devices=6, processes_p
                                                 "use_batch_norm": use_batch_norm,
                                                 "global_std_mode": global_std_mode,
                                                 "GLOBAL_STD": gstd,
-                                                "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
                                                 "INIT_WEIGHTS": init_vnn_weights,
                                                 "init_vnn_from_original": init_from == "original",
                                                 "results_folder": "results-iv-fixedsamples",
@@ -263,7 +292,7 @@ def test_vnn_init_fixed_sample(networks=["vgcn", "vgat"], devices=6, processes_p
                                                 "test",
                                                 name,
                                                 net,
-                                                f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
                                             ],
                                             {
                                                 "train_samples": samples,
@@ -272,7 +301,7 @@ def test_vnn_init_fixed_sample(networks=["vgcn", "vgat"], devices=6, processes_p
                                                 "use_batch_norm": use_batch_norm,
                                                 "global_std_mode": global_std_mode,
                                                 "GLOBAL_STD": gstd,
-                                                "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
                                                 "INIT_WEIGHTS": init_vnn_weights,
                                                 "init_vnn_from_original": init_from == "original",
                                                 "results_folder": "results-iv-fixedsamples",
@@ -329,7 +358,7 @@ def base_experiment_all(
 
                             experiments.append(
                                 (
-                                    ["train", name, net, f"vnn_{vnn_base_name(net)}"],
+                                    ["train", name, net, f"vnn_{model_base_name(net)}"],
                                     {
                                         "train_samples": samples,
                                         "batch_norm_mode": activation_mode,
@@ -382,7 +411,7 @@ def base_experiment_all(
                                                 "train",
                                                 name,
                                                 net,
-                                                f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
                                             ],
                                             {
                                                 "train_samples": samples,
@@ -391,7 +420,7 @@ def base_experiment_all(
                                                 "use_batch_norm": use_batch_norm,
                                                 "global_std_mode": global_std_mode,
                                                 "GLOBAL_STD": gstd,
-                                                "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
                                                 "INIT_WEIGHTS": init_vnn_weights,
                                                 "init_vnn_from_original": init_from
                                                 == "original",
@@ -456,7 +485,7 @@ def uncertainty_aware(
                                                     "train",
                                                     name,
                                                     net,
-                                                    f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                    f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
                                                 ],
                                                 {
                                                     "train_samples": samples,
@@ -465,7 +494,7 @@ def uncertainty_aware(
                                                     "use_batch_norm": use_batch_norm,
                                                     "global_std_mode": global_std_mode,
                                                     "GLOBAL_STD": gstd,
-                                                    "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                    "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
                                                     "INIT_WEIGHTS": init_vnn_weights,
                                                     "init_vnn_from_original": init_from
                                                     == "original",
@@ -530,7 +559,7 @@ def train_uncertainty_aware_from_best_vgat(
                                                         "train",
                                                         name,
                                                         net,
-                                                        f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                        f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
                                                     ],
                                                     {
                                                         "train_samples": samples,
@@ -539,7 +568,7 @@ def train_uncertainty_aware_from_best_vgat(
                                                         "use_batch_norm": use_batch_norm,
                                                         "global_std_mode": global_std_mode,
                                                         "GLOBAL_STD": gstd,
-                                                        "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                        "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
                                                         "INIT_WEIGHTS": init_vnn_weights,
                                                         "init_vnn_from_original": init_from
                                                         == "original",
@@ -592,7 +621,7 @@ def train_vgat_for_unecrtainty_aware(
                                                 "train",
                                                 name,
                                                 net,
-                                                f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
                                             ],
                                             {
                                                 "train_samples": samples,
@@ -601,7 +630,7 @@ def train_vgat_for_unecrtainty_aware(
                                                 "use_batch_norm": use_batch_norm,
                                                 "global_std_mode": global_std_mode,
                                                 "GLOBAL_STD": gstd,
-                                                "init_vnn_from": f"models/{init_from}/{vnn_base_name(net)}",
+                                                "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
                                                 "INIT_WEIGHTS": init_vnn_weights,
                                                 "init_vnn_from_original": init_from
                                                 == "original",
@@ -660,7 +689,7 @@ def test_uncertainty_aware_from_best_vgat(
                                                     "test",
                                                     name,
                                                     net,
-                                                    f"vnn_{vnn_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                    f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
                                                 ],
                                                 {
                                                     "train_samples": samples,
