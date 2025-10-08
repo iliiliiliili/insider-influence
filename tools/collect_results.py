@@ -406,7 +406,7 @@ def show_inclusion_table(
                         for exp in experiments
                         if (not has_filtered_flags(exp))
                         and not (exp.network_type in exclude_model_types)
-                        and (allow_model_types is None or exp.network_type in allow_model_types)
+                        # and (allow_model_types is None or exp.network_type in allow_model_types)
                     ]
 
                     experiments = sorted(

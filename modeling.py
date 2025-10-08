@@ -134,7 +134,7 @@ def vnn_all(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug=
     run_experiments(experiments, devices, processes_per_device, debug)
 
 
-def dropout_all(networks=["dropoutgcn", "dropoutgat"], devices=8, processes_per_device=3, debug=False):
+def dropout_all(networks=["dropoutgcn", "dropoutgat"], devices=8, processes_per_device=3, debug=False, mode="train"):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -151,7 +151,7 @@ def dropout_all(networks=["dropoutgcn", "dropoutgat"], devices=8, processes_per_
 
                     experiments.append(
                         (
-                            ["train", name, net, f"dropout_{model_base_name(net)}"],
+                            [mode, name, net, f"dropout_{model_base_name(net)}"],
                             {
                                 "train_samples": samples,
                                 "dropout_probability": dropout_probability,
@@ -163,7 +163,7 @@ def dropout_all(networks=["dropoutgcn", "dropoutgat"], devices=8, processes_per_
     run_experiments(experiments, devices, processes_per_device, debug)
 
 
-def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug=False):
+def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug=False, mode="train"):
 
     if not isinstance(devices, list):
         devices = [f"cuda:{d}" for d in range(devices)]
@@ -205,7 +205,7 @@ def vnn_init(networks=["vgcn", "vgat"], devices=8, processes_per_device=3, debug
                                     experiments.append(
                                         (
                                             [
-                                                "train",
+                                                mode,
                                                 name,
                                                 net,
                                                 f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",

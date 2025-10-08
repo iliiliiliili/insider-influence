@@ -34,6 +34,16 @@ from networks.dropout_gat import DropoutBatchGAT
 from draw import draw_uncertain_attention_graphs, draw_uncertain_attentions
 
 
+def set_model_eval(model):
+
+    model.eval()
+
+    if "Dropout" in model.__class__.__name__:
+        for m in model.modules():
+            if m.__class__.__name__ == ('Dropout'):
+                m.train()
+
+
 def train_model(
     model,
     dataloader,
@@ -140,9 +150,8 @@ def train_model(
                 progress_bar.set_description("Early stopping on epoch {}".format(epoch))
 
             break
-    # TODO: should the validation be done after the best model is loaded?
     model.load_state_dict(torch.load(param_path, weights_only=True))
-    model.eval()
+    set_model_eval(model)
 
     _, best_thr, _ = evaluate(model, class_weight, valid_loader, device)
 
@@ -239,7 +248,7 @@ def evaluate(model, class_weight, loader, device, best_thr=None, samples=None):
     if samples is not None:
         extra_forward_args["samples"] = samples
 
-    model.eval()
+    set_model_eval(model)
     total = 0.0
     loss = 0.0
     y_true, y_pred, y_score = [], [], []
@@ -278,7 +287,7 @@ def evaluate_with_uncertainty(
     if samples is not None:
         extra_forward_args["samples"] = samples
 
-    model.eval()
+    set_model_eval(model)
     total = 0.0
     loss = 0.0
     y_true, y_pred, y_score = [], [], []
@@ -325,7 +334,7 @@ def evaluate_with_uncertainty_and_attention(
     if samples is not None:
         extra_forward_args["samples"] = samples
 
-    model.eval()
+    set_model_eval(model)
     total = 0.0
     loss = 0.0
     y_true, y_pred, y_score = [], [], []
@@ -756,10 +765,10 @@ def main(
 
                 path_model_checkpoint = test_model_path / "checkpoint.pt"
                 model.load_state_dict(
-                    torch.load(path_model_checkpoint, weights_only=True)
+                    torch.load(path_model_checkpoint, weights_only=True, map_location=device)
                 )
 
-            model.eval()
+            set_model_eval(model)
 
             test_loader = data_loader["test"]
             test_loader.sampler.shuffle = False
@@ -843,11 +852,11 @@ def main(
 
                     if test_with_uncertainty:
                         _, _, stats, uncertainty_scores = evaluate_with_uncertainty(
-                            model, class_weight, test_loader, device, best_thr=best_thr
+                            model, class_weight, test_loader, device, best_thr=best_thr, samples=samples
                         )
                     else:
                         _, _, stats = evaluate(
-                            model, class_weight, test_loader, device, best_thr=best_thr
+                            model, class_weight, test_loader, device, best_thr=best_thr, samples=samples
                         )
 
                     table_5_performance.at[
