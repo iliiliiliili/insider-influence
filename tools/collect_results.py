@@ -616,6 +616,8 @@ def plot_single_frame(frame, output_file_name, model_type_order, plots_extra_fla
     frame.horizon = Categorical(
         frame.horizon, ordered=True, categories=["Lead-lag", "Simultaneous", "Mean"]
     )
+    
+    frame = frame.sort_values("F1")
 
     plot = (
         ggplot(frame)
