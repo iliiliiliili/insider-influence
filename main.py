@@ -20,8 +20,10 @@ from sklearn.metrics import (
     roc_auc_score,
     precision_recall_curve,
 )
+from sklearn.calibration import calibration_curve
 from statistics import stdev, mean
 from fire import Fire
+import matplotlib.pyplot as plt
 
 from networks.vnn_gat import (
     VariationalBatchGAT,
@@ -241,7 +243,97 @@ def calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr):
     )
 
 
-def evaluate(model, class_weight, loader, device, best_thr=None, samples=None):
+def plot_reliability_diagram(y_true, y_score, output_path=None, n_bins=10, strategy='uniform'):
+    """
+    Calculate and plot the reliability diagram (calibration plot) for the model.
+    
+    Args:
+        y_true: True binary labels (0 or 1)
+        y_score: Predicted log probabilities for the positive class
+        output_path: Path to save the plot (if None, displays the plot)
+        n_bins: Number of bins to use for calibration curve
+        strategy: Strategy for binning ('uniform' or 'quantile')
+    
+    Returns:
+        Dictionary containing:
+            - prob_true: The true probability in each bin
+            - prob_pred: The mean predicted probability in each bin
+            - ece: Expected Calibration Error
+            - mce: Maximum Calibration Error
+    """
+    # Convert log probabilities to probabilities
+    y_score = np.array(y_score)
+    y_prob = np.exp(y_score)  # Convert from log probability to probability
+    
+    y_true = np.array(y_true)
+    
+    # Calculate calibration curve
+    prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=n_bins, strategy=strategy)
+    
+    # Calculate Expected Calibration Error (ECE)
+    # ECE is the weighted average of the absolute difference between predicted and true probabilities
+    bin_edges = np.linspace(0, 1, n_bins + 1)
+    bin_indices = np.digitize(y_prob, bin_edges[1:-1])
+    
+    ece = 0.0
+    mce = 0.0
+    n_samples = len(y_true)
+    
+    for i in range(n_bins):
+        mask = bin_indices == i
+        if np.sum(mask) > 0:
+            bin_accuracy = np.mean(y_true[mask])
+            bin_confidence = np.mean(y_prob[mask])
+            bin_weight = np.sum(mask) / n_samples
+            
+            calibration_error = np.abs(bin_accuracy - bin_confidence)
+            ece += bin_weight * calibration_error
+            mce = max(mce, calibration_error)
+    
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(8, 8))
+    
+    # Plot the calibration curve
+    ax.plot(prob_pred, prob_true, marker='o', linewidth=2, label='Model', markersize=8)
+    
+    # Plot perfect calibration line
+    ax.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration', linewidth=2)
+    
+    # Add histogram of predicted probabilities
+    ax2 = ax.twinx()
+    ax2.hist(y_prob, bins=n_bins, alpha=0.3, color='blue', edgecolor='black', label='Distribution')
+    ax2.set_ylabel('Count', fontsize=12)
+    ax2.legend(loc='upper left')
+    
+    # Formatting
+    ax.set_xlabel('Mean Predicted Probability', fontsize=12)
+    ax.set_ylabel('Fraction of Positives', fontsize=12)
+    ax.set_title(f'Reliability Diagram\nECE: {ece:.4f}, MCE: {mce:.4f}', fontsize=14)
+    ax.legend(loc='upper right')
+    ax.grid(alpha=0.3)
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1])
+    
+    plt.tight_layout()
+    
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Reliability diagram saved to {output_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+
+    return {
+        'prob_true': prob_true,
+        'prob_pred': prob_pred,
+        'ece': ece,
+        'mce': mce,
+        'n_bins': n_bins,
+    }
+
+
+def evaluate(model, class_weight, loader, device, best_thr=None, samples=None, calibration_plots_path=None):
 
     extra_forward_args = {}
 
@@ -268,6 +360,9 @@ def evaluate(model, class_weight, loader, device, best_thr=None, samples=None):
         y_pred += output.max(1)[1].data.tolist()
         y_score += output[:, 1].data.tolist()
         total += bs
+
+    if calibration_plots_path is not None:
+        plot_reliability_diagram(y_true, y_score, output_path=calibration_plots_path)
 
     return calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
 
@@ -564,7 +659,7 @@ def main(
             Path(results_folder)
             / path
             / name
-            / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}"
+            / f"{architecture}{model_name_suffix}{vnn_subname}{result_suffix}_{horizon}_{frequency}_{direction}"
         )
 
         if evaluation_result_subfolder is not None:
@@ -850,13 +945,20 @@ def main(
                     family_flags = np.hstack(family_flags)
                     own_company_flags = np.hstack(own_company_flags)
 
+
+                    os.makedirs(plots_folder_path, exist_ok=True)
+                    if r == 0 and sid == 0:
+                        calibration_plots_path = plots_folder_path / f"calibration_plot_s{samples}.png"
+                    else:
+                        calibration_plots_path = None
+
                     if test_with_uncertainty:
                         _, _, stats, uncertainty_scores = evaluate_with_uncertainty(
                             model, class_weight, test_loader, device, best_thr=best_thr, samples=samples
                         )
                     else:
                         _, _, stats = evaluate(
-                            model, class_weight, test_loader, device, best_thr=best_thr, samples=samples
+                            model, class_weight, test_loader, device, best_thr=best_thr, samples=samples, calibration_plots_path=calibration_plots_path
                         )
 
                     table_5_performance.at[
@@ -933,7 +1035,7 @@ def main(
                 keys = [*single_model_result[i].keys()]
                 for key in keys:
                     if key not in ["seeds", "test_samples"]:
-                        std = stdev(single_model_result[i][key])
+                        std = 0 if len(single_model_result[i][key]) <= 1 else stdev(single_model_result[i][key])
                         single_model_result[i][key] = mean(single_model_result[i][key])
                         single_model_result[i][key + "_std"] = std
 
@@ -942,16 +1044,9 @@ def main(
             keys = [*single_model_result.keys()]
             for key in keys:
                 if key != "seeds":
-                    std = stdev(single_model_result[key])
+                    std = 0 if len(single_model_result[key]) <= 1 else stdev(single_model_result[key])
                     single_model_result[key] = mean(single_model_result[key])
                     single_model_result[key + "_std"] = std
-
-        results_folder_path = (
-            Path(results_folder)
-            / path
-            / name
-            / f"{architecture}{model_name_suffix}{vnn_subname}{result_suffix}_{horizon}_{frequency}_{direction}"
-        )
 
         if evaluation_result_subfolder is not None:
             results_folder_path = results_folder_path / evaluation_result_subfolder
