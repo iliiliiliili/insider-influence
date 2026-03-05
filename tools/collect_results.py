@@ -711,6 +711,9 @@ def find_experiments(
             elif params[i] == "afl":
                 flags.append(("afl", params[i + 1]))
                 i += 1
+            elif params[i] == "acf":
+                flags.append(("acf", params[i + 1]))
+                i += 1
             elif params[i] in ["iv"]:
                 flags.append(("iv_base", params[i + 1]))
                 i += 1

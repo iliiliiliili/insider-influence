@@ -157,6 +157,7 @@ class UncertaintyAwareEarlyAttentionVariationalBatchGAT(nn.Module):
         training_method="variational",
         attention_filter_limit=0.5,
         variational_mode_on_inference=False,
+        attention_combination_frequency=1,
     ):
         super(UncertaintyAwareEarlyAttentionVariationalBatchGAT, self).__init__()
 
@@ -165,6 +166,7 @@ class UncertaintyAwareEarlyAttentionVariationalBatchGAT(nn.Module):
         self.training_method = training_method
         self.attention_filter_limit = attention_filter_limit
         self.variational_mode_on_inference = variational_mode_on_inference
+        self.attention_combination_frequency = attention_combination_frequency
 
         VariationalBase.FIX_GAUSSIAN = FIX_GAUSSIAN
         VariationalBase.INIT_WEIGHTS = INIT_WEIGHTS
@@ -316,17 +318,27 @@ class UncertaintyAwareEarlyAttentionVariationalBatchGAT(nn.Module):
                 all_attentions[i].append(attention)
                 # output_xs.append(x)
 
-            att_var, att = torch.var_mean(
-                torch.stack(all_attentions[i], dim=0), dim=0, unbiased=False
-            )
+            attention_filtering_current_layer = (i + 1) % self.attention_combination_frequency == 0 or i + 1 == self.n_layer
 
-            attention_filtered, _ = filter_attentions(att, att_var, self.attention_filter_limit)
+            if attention_filtering_current_layer:
 
-            attentions[i] = (att, att_var)
+                att_var, att = torch.var_mean(
+                    torch.stack(all_attentions[i], dim=0), dim=0, unbiased=False
+                )
+
+                attention_filtered, att_var = filter_attentions(att, att_var, self.attention_filter_limit)
+
+                attentions[i] = (attention_filtered, att_var)
+
+            else:
+                attentions[i] = all_attentions[i]
 
             for s in range(samples):
                 h_prime = h_primes.pop(0)
-                x = gat_layer.output_step((h_prime, attention_filtered))[
+
+                current_attention = attentions[i][0] if attention_filtering_current_layer else attentions[i].pop(0)
+
+                x = gat_layer.output_step((h_prime, current_attention))[
                     0
                 ]  # bs x n_head x n x f_out
                 output_xs.append(x)
@@ -354,7 +366,7 @@ class UncertaintyAwareEarlyAttentionVariationalBatchGAT(nn.Module):
             return result
 
     def forward(
-        self, data, normalized_embedding=None, samples=None, return_uncertainty=False
+        self, data, normalized_embedding=None, samples=None, return_uncertainty=False,
     ):
 
         if self.training:

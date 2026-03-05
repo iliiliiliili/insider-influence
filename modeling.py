@@ -4,6 +4,29 @@ from multiprocessing import Pool
 
 from networks.variational import VariationalBase
 import random
+from tools import collect_results
+
+import torch
+
+def custom_repr(self):
+
+    has_mean = self.dtype in [torch.float16, torch.float32, torch.float64]
+    if len(self.shape) > 0:
+        return (
+            f"T{tuple(self.shape)}".replace("(", "[").replace(")", "]")
+            + (f"<m={self.mean().item():.2f}>" if has_mean else "")
+            + (f"<s={self.sum().item()}>" if not has_mean else "")
+            + f".{self.device.type}"
+            )
+    
+    else:
+        return original_repr(self)
+
+
+
+original_repr = torch.Tensor.__repr__
+torch.Tensor.__repr__ = custom_repr
+torch.Tensor.__str__ = original_repr
 
 
 def model_base_name(full_name):
@@ -506,8 +529,8 @@ def uncertainty_aware(
     run_experiments(experiments, devices, processes_per_device, debug)
 
 
-def train_uncertainty_aware_from_best_vgat(
-    networks=["uaeavgat"], devices=8, processes_per_device=1, debug=False
+def train_uncertainty_aware_from_best_ivgat(
+    networks=["uaeavgat"], devices=8, processes_per_device=1, debug=False, results_folder="results-ua"
 ):
 
     if not isinstance(devices, list):
@@ -529,56 +552,150 @@ def train_uncertainty_aware_from_best_vgat(
                                     "uncertainty_aware",
                                 ]:
                                     for attention_filter_limit in [
-                                        0.1,
+                                        # 0.1,
                                         0.5,
-                                        0.7,
-                                        1,
-                                        10,
+                                        # 0.7,
+                                        # 1,
+                                        # 10,
                                     ]:
+                                        for attention_combination_frequency in [1,2,3]:
 
-                                        if global_std_mode == "none":
-                                            gstds = [0]
-                                        else:
-                                            gstds = [0.05]
+                                            if global_std_mode == "none":
+                                                gstds = [0]
+                                            else:
+                                                gstds = [0.1]
 
-                                        for gstd in gstds:
+                                            for gstd in gstds:
 
-                                            name = (
-                                                f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
-                                                + (
-                                                    ""
-                                                    if global_std_mode == "none"
-                                                    else f"/gstd_{gstd}"
+                                                name = (
+                                                    f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
+                                                    + (
+                                                        ""
+                                                        if global_std_mode == "none"
+                                                        else f"/gstd_{gstd}"
+                                                    )
+                                                    + f"/train_{training_method}/afl_{attention_filter_limit}_acf_{attention_combination_frequency}"
                                                 )
-                                                + f"/train_{training_method}/afl_{attention_filter_limit}"
-                                            )
 
-                                            experiments.append(
-                                                (
-                                                    [
-                                                        "train",
-                                                        name,
-                                                        net,
-                                                        f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
-                                                    ],
-                                                    {
-                                                        "train_samples": samples,
-                                                        "batch_norm_mode": activation_mode,
-                                                        "activation_mode": activation_mode,
-                                                        "use_batch_norm": use_batch_norm,
-                                                        "global_std_mode": global_std_mode,
-                                                        "GLOBAL_STD": gstd,
-                                                        "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
-                                                        "INIT_WEIGHTS": init_vnn_weights,
-                                                        "init_vnn_from_original": init_from
-                                                        == "original",
-                                                        "training_method": training_method,
-                                                        "attention_filter_limit": attention_filter_limit,
-                                                    },
+                                                experiments.append(
+                                                    (
+                                                        [
+                                                            "train",
+                                                            name,
+                                                            net,
+                                                            f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                                        ],
+                                                        {
+                                                            "train_samples": samples,
+                                                            "batch_norm_mode": activation_mode,
+                                                            "activation_mode": activation_mode,
+                                                            "use_batch_norm": use_batch_norm,
+                                                            "global_std_mode": global_std_mode,
+                                                            "GLOBAL_STD": gstd,
+                                                            "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
+                                                            "INIT_WEIGHTS": init_vnn_weights,
+                                                            "init_vnn_from_original": init_from
+                                                            == "original",
+                                                            "training_method": training_method,
+                                                            "attention_filter_limit": attention_filter_limit,
+                                                            "attention_combination_frequency": attention_combination_frequency,
+                                                            "results_folder": results_folder,
+                                                        },
+                                                    )
                                                 )
-                                            )
     random.shuffle(experiments)
     run_experiments(experiments, devices, processes_per_device, debug)
+
+
+def train_uncertainty_aware_from_best_vgat(
+    networks=["uaeavgat"], devices=8, processes_per_device=1, debug=False, results_folder="results-ua"
+):
+
+    if not isinstance(devices, list):
+        devices = [f"cuda:{d}" for d in range(devices)]
+
+    experiments = []
+
+    for net in networks:
+        for samples in [7, 2]:
+            for activation_mode in ["mean"]:
+                for use_batch_norm in [False]:
+                    for global_std_mode in ["multiply"]:
+                        if global_std_mode == "none":
+                            gstds = [0]
+                        else:
+                            gstds = [0.1]
+
+                        for gstd in gstds:
+
+                            vgat_name = (
+                                f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
+                                + ("" if global_std_mode == "none" else f"/gstd_{gstd}")
+                            )
+
+                            experiments.append(
+                                (
+                                    ["train", vgat_name, net, f"vnn_{model_base_name(net)}"],
+                                    {
+                                        "train_samples": samples,
+                                        "batch_norm_mode": activation_mode,
+                                        "activation_mode": activation_mode,
+                                        "use_batch_norm": use_batch_norm,
+                                        "global_std_mode": global_std_mode,
+                                        "GLOBAL_STD": gstd,
+                                    },
+                                )
+                            )
+
+
+                            for training_method in [
+                                "variational",
+                                "uncertainty_aware",
+                            ]:
+                                for attention_filter_limit in [
+                                    # 0.1,
+                                    0.5,
+                                    # 0.7,
+                                    # 1,
+                                    # 10,
+                                ]:
+                                    for attention_combination_frequency in [1,2,3]:
+
+                                        name = (
+                                            f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
+                                            + (
+                                                ""
+                                                if global_std_mode == "none"
+                                                else f"/gstd_{gstd}"
+                                            )
+                                            + f"/train_{training_method}/afl_{attention_filter_limit}_acf_{attention_combination_frequency}"
+                                        )
+
+                                        experiments.append(
+                                            (
+                                                [
+                                                    "train",
+                                                    name,
+                                                    net,
+                                                    f"vnn_{model_base_name(net)}",
+                                                ],
+                                                {
+                                                    "train_samples": samples,
+                                                    "batch_norm_mode": activation_mode,
+                                                    "activation_mode": activation_mode,
+                                                    "use_batch_norm": use_batch_norm,
+                                                    "global_std_mode": global_std_mode,
+                                                    "GLOBAL_STD": gstd,
+                                                    "training_method": training_method,
+                                                    "attention_filter_limit": attention_filter_limit,
+                                                    "attention_combination_frequency": attention_combination_frequency,
+                                                    "results_folder": results_folder,
+                                                },
+                                            )
+                                        )
+    random.shuffle(experiments)
+    run_experiments(experiments, devices, processes_per_device, debug)
+
 
 
 def train_vgat_for_unecrtainty_aware(

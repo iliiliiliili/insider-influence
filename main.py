@@ -339,7 +339,7 @@ def evaluate(model, class_weight, loader, device, best_thr=None, samples=None, c
 
     if samples is not None:
         extra_forward_args["samples"] = samples
-
+    
     set_model_eval(model)
     total = 0.0
     loss = 0.0
