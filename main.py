@@ -29,6 +29,7 @@ from networks.vnn_gat import (
     VariationalBatchGAT,
     UncertaintyAwareEarlyAttentionVariationalBatchGAT,
     UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT,
+    UncertaintyAwareLearnableVarianceInfluenceVariationalBatchGAT,
 )
 from networks.vnn_gcn import VariationalBatchGCN
 from networks.dropout_gcn import DropoutBatchGCN
@@ -119,7 +120,7 @@ def train_model(
         #   VALIDATE MODEL
         # =========================================================================
 
-        valid_loss, best_thr, valid_stats = evaluate(
+        valid_loss, best_thr, valid_stats, _, _, _ = evaluate(
             model, class_weight, valid_loader, device
         )
         # print(
@@ -155,13 +156,13 @@ def train_model(
     model.load_state_dict(torch.load(param_path, weights_only=True))
     set_model_eval(model)
 
-    _, best_thr, _ = evaluate(model, class_weight, valid_loader, device)
+    _, best_thr, _, _, _, _ = evaluate(model, class_weight, valid_loader, device)
 
     print(
         f" epoch: {epoch} train_loss: {train_loss}, "
         f"valid_loss: {valid_loss}, best_thr: {best_thr}"
     )
-    test_loss, _, test_stats = evaluate(
+    test_loss, _, test_stats, _, _, _, = evaluate(
         model, class_weight, test_loader, device, best_thr=best_thr
     )
     tensorboard_logger.add_scalar("Loss/test", test_loss, epoch)
@@ -243,7 +244,7 @@ def calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr):
     )
 
 
-def plot_reliability_diagram(y_true, y_score, output_path=None, n_bins=10, strategy='uniform'):
+def plot_reliability_diagram(y_true, y_score, output_path=None, n_bins=10, strategy='uniform', scale_down=False):
     """
     Calculate and plot the reliability diagram (calibration plot) for the model.
     
@@ -265,6 +266,9 @@ def plot_reliability_diagram(y_true, y_score, output_path=None, n_bins=10, strat
     y_score = np.array(y_score)
     y_prob = np.exp(y_score)  # Convert from log probability to probability
     
+    if scale_down:
+        y_prob[(y_prob >= 0.4) & (y_prob <= 0.8)] *= 0.7
+
     y_true = np.array(y_true)
     
     # Calculate calibration curve
@@ -325,8 +329,103 @@ def plot_reliability_diagram(y_true, y_score, output_path=None, n_bins=10, strat
     plt.close()
 
     return {
-        'prob_true': prob_true,
-        'prob_pred': prob_pred,
+        'prob_true': prob_true.tolist(),
+        'prob_pred': prob_pred.tolist(),
+        'ece': ece,
+        'mce': mce,
+        'n_bins': n_bins,
+    }
+
+
+def plot_variance_reliability_diagram(y_true, y_score, y_score_uncertainty, output_path=None, n_bins=10, strategy='uniform', uncertainty_influence=0.5):
+    """
+    Calculate and plot the reliability diagram (calibration plot) for the model.
+    
+    Args:
+        y_true: True binary labels (0 or 1)
+        y_score: Predicted log probabilities for the positive class
+        y_score_uncertainty: Uncertainty scores for the predicted probabilities
+        output_path: Path to save the plot (if None, displays the plot)
+        n_bins: Number of bins to use for calibration curve
+        strategy: Strategy for binning ('uniform' or 'quantile')
+        uncertainty_influence: Weight for the influence of uncertainty on predicted probabilities
+
+    Returns:
+        Dictionary containing:
+            - prob_true: The true probability in each bin
+            - prob_pred: The mean predicted probability in each bin
+            - ece: Expected Calibration Error
+            - mce: Maximum Calibration Error
+    """
+    # Convert log probabilities to probabilities
+    y_score = np.array(y_score)
+    y_prob = np.exp(y_score)  # Convert from log probability to probability
+    y_prob_uncertainty = 1 - uncertainty_influence * (np.array(y_score_uncertainty) - np.min(y_score_uncertainty)) / (np.max(y_score_uncertainty) - np.min(y_score_uncertainty) + 1e-18)
+    y_true = np.array(y_true)
+
+    y_prob = y_prob * y_prob_uncertainty # Adjust predicted probabilities by uncertainty (lower confidence leads to lower effective probability)
+
+    # Calculate calibration curve
+    prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=n_bins, strategy=strategy)
+    
+    # Calculate Expected Calibration Error (ECE)
+    # ECE is the weighted average of the absolute difference between predicted and true probabilities
+
+    bin_edges = np.linspace(0, 1, n_bins + 1)
+    bin_indices = np.digitize(y_prob, bin_edges[1:-1])
+
+    ece = 0.0
+    mce = 0.0
+    n_samples = len(y_true)
+    
+    for i in range(n_bins):
+        mask = bin_indices == i
+        if np.sum(mask) > 0:
+            bin_accuracy = np.mean(y_true[mask])
+            bin_confidence = np.mean(y_prob[mask])
+            bin_weight = np.sum(mask) / n_samples
+            
+            calibration_error = np.abs(bin_accuracy - bin_confidence)
+            ece += bin_weight * calibration_error
+            mce = max(mce, calibration_error)
+    
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(8, 8))
+    
+    # Plot the calibration curve
+    ax.plot(prob_pred, prob_true, marker='o', linewidth=2, label='Model', markersize=8)
+    
+    # Plot perfect calibration line
+    ax.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration', linewidth=2)
+    
+    # Add histogram of predicted probabilities
+    ax2 = ax.twinx()
+    ax2.hist(y_prob, bins=n_bins, alpha=0.3, color='blue', edgecolor='black', label='Distribution')
+    ax2.set_ylabel('Count', fontsize=12)
+    ax2.legend(loc='upper left')
+    
+    # Formatting
+    ax.set_xlabel('Uncertainty-Scaled Predicted Probability', fontsize=12)
+    ax.set_ylabel('Fraction of Positives', fontsize=12)
+    ax.set_title(f'Reliability Diagram\nECE: {ece:.4f}, MCE: {mce:.4f}', fontsize=14)
+    ax.legend(loc='upper right')
+    ax.grid(alpha=0.3)
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1])
+    
+    plt.tight_layout()
+    
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Reliability diagram saved to {output_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+
+    return {
+        'prob_true': prob_true.tolist(),
+        'prob_pred': prob_pred.tolist(),
         'ece': ece,
         'mce': mce,
         'n_bins': n_bins,
@@ -361,10 +460,14 @@ def evaluate(model, class_weight, loader, device, best_thr=None, samples=None, c
         y_score += output[:, 1].data.tolist()
         total += bs
 
-    if calibration_plots_path is not None:
-        plot_reliability_diagram(y_true, y_score, output_path=calibration_plots_path)
+    reliability_results = None
 
-    return calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
+    if calibration_plots_path is not None:
+        reliability_results = plot_reliability_diagram(y_true, y_score, output_path=calibration_plots_path)
+
+    metris = calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
+
+    return *metris, reliability_results, y_true, y_score
 
 
 def evaluate_with_uncertainty(
@@ -399,7 +502,8 @@ def evaluate_with_uncertainty(
         output, uncertainty = model(
             data[:2], data[-1], return_uncertainty=True, **extra_forward_args
         )
-        uncertainty_scores = (uncertainty / output.abs()).mean(axis=-1)
+        # uncertainty_scores = (uncertainty / output.abs()).mean(axis=-1)
+        uncertainty_scores = (uncertainty).mean(axis=-1)
         loss_batch = F.nll_loss(output, target, class_weight)
         loss += bs * loss_batch.item()
         y_true += target.data.tolist()
@@ -410,7 +514,7 @@ def evaluate_with_uncertainty(
 
     result = calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
 
-    return *result, all_uncertainty_scores
+    return *result, all_uncertainty_scores, y_true, y_score
 
 
 def evaluate_with_uncertainty_and_attention(
@@ -447,10 +551,12 @@ def evaluate_with_uncertainty_and_attention(
             data[:2], data[-1], return_uncertainty=True, **extra_forward_args
         )
 
-        # draw_uncertain_attentions(attentions, plots_folder_path)
-        draw_uncertain_attention_graphs(attentions, data[0], plots_folder_path)
+        if draw_uncertainty_graphs:
+            # draw_uncertain_attentions(attentions, plots_folder_path)
+            draw_uncertain_attention_graphs(attentions, data[0], plots_folder_path)
 
-        uncertainty_scores = (uncertainty / output.abs()).mean(axis=-1)
+        # uncertainty_scores = (uncertainty / output.abs()).mean(axis=-1)
+        uncertainty_scores = (uncertainty).mean(axis=-1)
         loss_batch = F.nll_loss(output, target, class_weight)
         loss += bs * loss_batch.item()
         y_true += target.data.tolist()
@@ -461,7 +567,7 @@ def evaluate_with_uncertainty_and_attention(
 
     result = calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
 
-    return *result, all_uncertainty_scores
+    return *result, all_uncertainty_scores, y_true, y_score
 
 
 def evaluate_predictions(df):
@@ -516,6 +622,7 @@ def get_parameters(
         "vgat": "gat",
         "dropoutgat": "gat",
         "uaeavgat": "gat",
+        "ualaivgat": "gat",
         "uafmcivgat": "gat",
         "gcn": "gcn",
         "gat": "gat",
@@ -582,6 +689,7 @@ def main(
     model_name_suffix=None,
     name_for_loading=None,
     result_suffix="",
+    graph_node_count=50,
     **model_kwargs,
 ):
 
@@ -597,45 +705,42 @@ def main(
             raise ValueError(f"Mode should be train or test (True or False)")
 
     datasets: List[Tuple[str, str, str, str]] = []
+    for horizon in (
+        [override_horizon] if override_horizon else ["Lead-lag", "Simultaneous"]
+    ):
+        for frequency in [override_frequency] if override_frequency else ["D", "W"]:
+            for direction in (
+                [override_direction] if override_direction else ["Buy", "Sell"]
+            ):
+                datasets.append((horizon, frequency, direction))
+
+    table_datasets = []
+
     for architecture in networks:
-        for horizon in (
-            [override_horizon] if override_horizon else ["Lead-lag", "Simultaneous"]
-        ):
-            for frequency in [override_frequency] if override_frequency else ["D", "W"]:
-                for direction in (
-                    [override_direction] if override_direction else ["Buy", "Sell"]
-                ):
-                    datasets.append((architecture, horizon, frequency, direction))
+        for horizon, frequency, direction in datasets:
+            table_datasets.append((architecture, horizon, frequency, direction))
 
     # Main result for best GCN and GAT architectures
-    table_5_performance = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
+    table_5_performance = pd.DataFrame(index=pd.MultiIndex.from_tuples(table_datasets))
 
     # Only samples with non-own securities
-    table_8_non_own_securities = pd.DataFrame(index=pd.MultiIndex.from_tuples(datasets))
+    table_8_non_own_securities = pd.DataFrame(index=pd.MultiIndex.from_tuples(table_datasets))
 
     # Only only samples with non-own securities traded by insiders themselves
     table_9_non_own_securities_self_trading = pd.DataFrame(
-        index=pd.MultiIndex.from_tuples(datasets)
+        index=pd.MultiIndex.from_tuples(table_datasets)
     )
 
     prediction_list: List[pd.DataFrame] = []
 
-    for architecture, horizon, frequency, direction in datasets:
+    for architecture in networks:
 
-        single_model_result = [
-            {
-                "f1": [],
-                "auc": [],
-                "non_own_f1": [],
-                "non_own_auc": [],
-                "insiders_non_own_f1": [],
-                "insiders_non_own_auc": [],
-                "seeds": seeds,
-            }
-        ]
+        all_y_true = {}
+        all_y_score = {}
+        all_y_uncertainty = {}
 
-        if is_variational_model(architecture):
-            runs = runs_per_variational_model
+        for horizon, frequency, direction in datasets:
+
             single_model_result = [
                 {
                     "f1": [],
@@ -646,415 +751,519 @@ def main(
                     "insiders_non_own_auc": [],
                     "seeds": seeds,
                 }
-                for _ in test_samples
             ]
-            vnn_subname = f"_s{train_samples}"
-        else:
-            runs = 1
-            vnn_subname = ""
-            train_samples = None
-            test_samples = None
 
-        results_folder_path = (
-            Path(results_folder)
-            / path
-            / name
-            / f"{architecture}{model_name_suffix}{vnn_subname}{result_suffix}_{horizon}_{frequency}_{direction}"
-        )
-
-        if evaluation_result_subfolder is not None:
-            results_folder_path = results_folder_path / evaluation_result_subfolder
-
-        plots_folder_path = (
-            Path(plots_folder)
-            / path
-            / name
-            / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}"
-        )
-
-        if (not ignore_existing) and os.path.exists(
-            results_folder_path / "result.json"
-        ):
-            print(f"Already tested {results_folder_path}")
-            continue
-
-        for sid, seed in enumerate(seeds):
-
-            data_seed = seed
-
-            print(
-                {
-                    "seed": seed,
-                    "sid": f"{sid + 1} / {len(seeds)}",
-                    "architecture": architecture,
-                    "horizon": horizon,
-                    "frequency": frequency,
-                    "direction": direction,
-                }
-            )
-
-            args = get_parameters(
-                horizon,
-                frequency,
-                direction,
-                architecture,
-                seed,
-                name,
-                path,
-                dataset_folder,
-            )
-
-            np.random.seed(data_seed)
-            torch.manual_seed(data_seed)
-            data_loader = create_train_valid_test_sets(
-                args, batch_size=args["batch_size"]
-            )
-
-            np.random.seed(seed)
-            torch.manual_seed(seed)
-
-            n_neighbors = data_loader["test"].dataset.n_neighbors
-            n_classes = data_loader["test"].dataset.get_num_class()
-
-            feature_dim = data_loader["test"].dataset.get_feature_dimension()
-            n_units = (
-                [feature_dim]
-                + [int(x) for x in args["hidden_units"].strip().split(",")]
-                + [data_loader["test"].dataset.n_classes]
-            )
-
-            # Model and optimizer
-            if args["model"] == "gcn":
-                model = BatchGCN(
-                    n_neighbors=n_neighbors,
-                    n_units=n_units,
-                    dropout=args["dropout"],
-                )
-            elif args["model"] == "vgcn":
-                model = VariationalBatchGCN(
-                    n_units=n_units,
-                    **model_kwargs,
-                )
-            elif args["model"] == "dropoutgcn":
-                model = DropoutBatchGCN(
-                    n_units=n_units,
-                    **model_kwargs,
-                )
-            elif args["model"] == "gat":
-                n_heads = [int(x) for x in args["heads"].strip().split(",")]
-                model = BatchGAT(  # pretrained_emb=embedding,
-                    n_units=n_units,
-                    n_heads=n_heads,
-                    dropout=args["dropout"],
-                )
-            elif args["model"] == "vgat":
-                n_heads = [int(x) for x in args["heads"].strip().split(",")]
-                model = VariationalBatchGAT(
-                    n_units=n_units,
-                    n_heads=n_heads,
-                    **model_kwargs,
-                )
-            elif args["model"] == "dropoutgat":
-                n_heads = [int(x) for x in args["heads"].strip().split(",")]
-                model = DropoutBatchGAT(
-                    n_units=n_units,
-                    n_heads=n_heads,
-                    **model_kwargs,
-                )
-            elif args["model"] == "uaeavgat":
-                n_heads = [int(x) for x in args["heads"].strip().split(",")]
-                model = UncertaintyAwareEarlyAttentionVariationalBatchGAT(
-                    n_units=n_units,
-                    n_heads=n_heads,
-                    **model_kwargs,
-                )
-            elif args["model"] == "uafmcivgat":
-                n_heads = [int(x) for x in args["heads"].strip().split(",")]
-                model = UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT(
-                    n_units=n_units,
-                    n_heads=n_heads,
-                    **model_kwargs,
-                )
+            if is_variational_model(architecture):
+                runs = runs_per_variational_model
+                single_model_result = [
+                    {
+                        "f1": [],
+                        "auc": [],
+                        "non_own_f1": [],
+                        "non_own_auc": [],
+                        "insiders_non_own_f1": [],
+                        "insiders_non_own_auc": [],
+                        "seeds": seeds,
+                    }
+                    for _ in test_samples
+                ]
+                vnn_subname = f"_s{train_samples}"
             else:
-                raise NotImplementedError
+                runs = 1
+                vnn_subname = ""
+                train_samples = None
+                test_samples = None
 
-            model.to(device)
-
-            model_path = (
-                Path(models_folder)
+            results_folder_path = (
+                Path(results_folder)
                 / path
                 / name
-                / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
+                / f"{architecture}{model_name_suffix}{vnn_subname}{result_suffix}_{horizon}_{frequency}_{direction}"
             )
 
-            if init_vnn_from:
-                print(f"Init vnn weights from {init_vnn_from}")
+            if evaluation_result_subfolder is not None:
+                results_folder_path = results_folder_path / evaluation_result_subfolder
 
-                weights_path = (
-                    (
-                        Path(init_vnn_from + f"_{horizon}_{frequency}_{direction}")
-                        / "checkpoint.pt"
-                    )
-                    if init_vnn_from_original
-                    else (
-                        Path(
-                            init_vnn_from
-                            + f"_{horizon}_{frequency}_{direction}_seed_{seed}"
-                        )
-                        / "checkpoint.pt"
-                    )
+            plots_folder_path = (
+                Path(plots_folder)
+                / path
+                / name
+                / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}"
+            )
+
+            if (not ignore_existing) and os.path.exists(
+                results_folder_path / "result.json"
+            ):
+                print(f"Already tested {results_folder_path}")
+                continue
+
+            for sid, seed in enumerate(seeds):
+
+                data_seed = seed
+
+                print(
+                    {
+                        "seed": seed,
+                        "sid": f"{sid + 1} / {len(seeds)}",
+                        "architecture": architecture,
+                        "horizon": horizon,
+                        "frequency": frequency,
+                        "direction": direction,
+                    }
                 )
 
-                weights = torch.load(weights_path, weights_only=True)
-                weights = OrderedDict([[k, v.to(device)] for k, v in weights.items()])
-
-                def pair_parameter(name):
-                    return (name, name.replace("means.0.", "").replace("means.", ""))
-
-                paired_parameters = [
-                    pair_parameter(a) for a in model.state_dict().keys() if "means" in a
-                ]
-                unpaired_parameters = [
-                    a
-                    for a in model.state_dict().keys()
-                    if ("means" not in a) and ("stds" not in a)
-                ]
-
-                final_params = {}
-
-                for a, b in paired_parameters:
-                    final_params[a] = weights[b]
-
-                for a in unpaired_parameters:
-                    final_params[a] = weights[a]
-
-                model.load_state_dict(final_params, strict=False)
-
-            if train:
-                os.makedirs(results_folder, exist_ok=True)
-
-                train_model(
-                    model=model,
-                    dataloader=data_loader,
-                    args=args,
-                    device=device,
-                    patience=10,
-                    epochs=500,
-                    result_dir=model_path,
-                    samples=train_samples,
+                args = get_parameters(
+                    horizon,
+                    frequency,
+                    direction,
+                    architecture,
+                    seed,
+                    name,
+                    path,
+                    dataset_folder,
                 )
-            else:
 
-                if load_model_from_architecture is None:
-                    test_model_path = model_path
+                np.random.seed(data_seed)
+                torch.manual_seed(data_seed)
+                data_loader = create_train_valid_test_sets(
+                    args, batch_size=args["batch_size"]
+                )
+
+                np.random.seed(seed)
+                torch.manual_seed(seed)
+
+                n_neighbors = data_loader["test"].dataset.n_neighbors
+                n_classes = data_loader["test"].dataset.get_num_class()
+
+                feature_dim = data_loader["test"].dataset.get_feature_dimension()
+                n_units = (
+                    [feature_dim]
+                    + [int(x) for x in args["hidden_units"].strip().split(",")]
+                    + [data_loader["test"].dataset.n_classes]
+                )
+
+                # Model and optimizer
+                if args["model"] == "gcn":
+                    model = BatchGCN(
+                        n_neighbors=n_neighbors,
+                        n_units=n_units,
+                        dropout=args["dropout"],
+                    )
+                elif args["model"] == "vgcn":
+                    model = VariationalBatchGCN(
+                        n_units=n_units,
+                        **model_kwargs,
+                    )
+                elif args["model"] == "dropoutgcn":
+                    model = DropoutBatchGCN(
+                        n_units=n_units,
+                        **model_kwargs,
+                    )
+                elif args["model"] == "gat":
+                    n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                    model = BatchGAT(  # pretrained_emb=embedding,
+                        n_units=n_units,
+                        n_heads=n_heads,
+                        dropout=args["dropout"],
+                    )
+                elif args["model"] == "vgat":
+                    n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                    model = VariationalBatchGAT(
+                        n_units=n_units,
+                        n_heads=n_heads,
+                        **model_kwargs,
+                    )
+                elif args["model"] == "dropoutgat":
+                    n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                    model = DropoutBatchGAT(
+                        n_units=n_units,
+                        n_heads=n_heads,
+                        **model_kwargs,
+                    )
+                elif args["model"] == "uaeavgat":
+                    n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                    model = UncertaintyAwareEarlyAttentionVariationalBatchGAT(
+                        n_units=n_units,
+                        n_heads=n_heads,
+                        **model_kwargs,
+                    )
+                elif args["model"] == "ualaivgat":
+                    n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                    model = UncertaintyAwareLearnableVarianceInfluenceVariationalBatchGAT(
+                        n_units=n_units,
+                        n_heads=n_heads,
+                        graph_node_count=graph_node_count,
+                        **model_kwargs,
+                    )
+                elif args["model"] == "uafmcivgat":
+                    n_heads = [int(x) for x in args["heads"].strip().split(",")]
+                    model = UncertaintyAwareFullyMonteCarloIntegratedAttentionVariationalBatchGAT(
+                        n_units=n_units,
+                        n_heads=n_heads,
+                        **model_kwargs,
+                    )
                 else:
-                    test_model_path = (
-                        Path(models_folder)
-                        / path
-                        / name_for_loading
-                        / f"{load_model_from_architecture}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
-                    )
+                    raise NotImplementedError
 
-                print("Loading model from", test_model_path)
-                test_model_path = Path(test_model_path)
+                model.to(device)
 
-                path_model_checkpoint = test_model_path / "checkpoint.pt"
-                model.load_state_dict(
-                    torch.load(path_model_checkpoint, weights_only=True, map_location=device)
+                model_path = (
+                    Path(models_folder)
+                    / path
+                    / name
+                    / f"{architecture}{model_name_suffix}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
                 )
 
-            set_model_eval(model)
+                if init_vnn_from:
+                    print(f"Init vnn weights from {init_vnn_from}")
 
-            test_loader = data_loader["test"]
-            test_loader.sampler.shuffle = False
-            data_loader["valid"].sampler.shuffle = False
-
-            if args["class_weight_balanced"]:
-                class_weight = test_loader.dataset.get_class_weight()
-            else:
-                class_weight = torch.ones(test_loader.dataset.n_classes)
-
-            test_samples = test_samples if test_samples is not None else [None]
-
-            for r in range(runs):
-                for i, samples in enumerate(test_samples):
-
-                    print(
-                        {
-                            "rid": f"{r + 1} / {runs}",
-                            "said": f"{i + 1} / {len(test_samples)}",
-                        },
-                        end="\r",
-                    )
-
-                    if samples is not None:
-                        single_model_result[i]["test_samples"] = samples
-
-                    if test_with_uncertainty:
-
-                        if architecture in ["vgat", "uavgat"]:
-                            valid_loss, best_thr, valid_stats, uncertainty_scores = (
-                                evaluate_with_uncertainty_and_attention(
-                                    model,
-                                    class_weight,
-                                    data_loader["valid"],
-                                    device,
-                                    samples=samples,
-                                    draw_uncertainty_graphs=draw_uncertainty_graphs,
-                                    plots_folder_path=plots_folder_path,
-                                )
-                            )
-                        else:
-
-                            valid_loss, best_thr, valid_stats, uncertainty_scores = (
-                                evaluate_with_uncertainty(
-                                    model,
-                                    class_weight,
-                                    data_loader["valid"],
-                                    device,
-                                    samples=samples,
-                                    draw_uncertainty_graphs=draw_uncertainty_graphs,
-                                    # plots_folder_path=plots_folder_path,
-                                )
-                            )
-                    else:
-                        valid_loss, best_thr, valid_stats = evaluate(
-                            model,
-                            class_weight,
-                            data_loader["valid"],
-                            device,
-                            samples=samples,
-                        )
-
-                    distances = []
-                    family_flags = []
-                    own_company_flags = []
-                    for data, _ in test_loader:
+                    weights_path = (
                         (
-                            _,
-                            _,
-                            batch_distances,
-                            batch_family_flags,
-                            batch_own_company_flags,
-                            _,
-                        ) = data
-                        distances.append(batch_distances.numpy())
-                        family_flags.append(batch_family_flags.numpy())
-                        own_company_flags.append(batch_own_company_flags.numpy())
-                    distances = np.hstack(distances)
-                    family_flags = np.hstack(family_flags)
-                    own_company_flags = np.hstack(own_company_flags)
-
-
-                    os.makedirs(plots_folder_path, exist_ok=True)
-                    if r == 0 and sid == 0:
-                        calibration_plots_path = plots_folder_path / f"calibration_plot_s{samples}.png"
-                    else:
-                        calibration_plots_path = None
-
-                    if test_with_uncertainty:
-                        _, _, stats, uncertainty_scores = evaluate_with_uncertainty(
-                            model, class_weight, test_loader, device, best_thr=best_thr, samples=samples
+                            Path(init_vnn_from + f"_{horizon}_{frequency}_{direction}")
+                            / "checkpoint.pt"
                         )
+                        if init_vnn_from_original
+                        else (
+                            Path(
+                                init_vnn_from
+                                + f"_{horizon}_{frequency}_{direction}_seed_{seed}"
+                            )
+                            / "checkpoint.pt"
+                        )
+                    )
+
+                    weights = torch.load(weights_path, weights_only=True)
+                    weights = OrderedDict([[k, v.to(device)] for k, v in weights.items()])
+
+                    def pair_parameter(name):
+                        return (name, name.replace("means.0.", "").replace("means.", ""))
+
+                    paired_parameters = [
+                        pair_parameter(a) for a in model.state_dict().keys() if "means" in a
+                    ]
+                    unpaired_parameters = [
+                        a
+                        for a in model.state_dict().keys()
+                        if ("means" not in a) and ("stds" not in a)
+                    ]
+
+                    final_params = {}
+
+                    for a, b in paired_parameters:
+                        final_params[a] = weights[b]
+
+                    for a in unpaired_parameters:
+                        final_params[a] = weights[a]
+
+                    model.load_state_dict(final_params, strict=False)
+
+                if train:
+                    os.makedirs(results_folder, exist_ok=True)
+
+                    train_model(
+                        model=model,
+                        dataloader=data_loader,
+                        args=args,
+                        device=device,
+                        patience=10,
+                        epochs=500,
+                        result_dir=model_path,
+                        samples=train_samples,
+                    )
+                else:
+
+                    if load_model_from_architecture is None:
+                        test_model_path = model_path
                     else:
-                        _, _, stats = evaluate(
-                            model, class_weight, test_loader, device, best_thr=best_thr, samples=samples, calibration_plots_path=calibration_plots_path
+                        test_model_path = (
+                            Path(models_folder)
+                            / path
+                            / name_for_loading
+                            / f"{load_model_from_architecture}{vnn_subname}_{horizon}_{frequency}_{direction}_seed_{seed}"
                         )
 
-                    table_5_performance.at[
-                        (architecture, horizon, frequency, direction), "F1-score"
-                    ] = stats["f1"][1]
-                    table_5_performance.at[
-                        (architecture, horizon, frequency, direction), "AUC"
-                    ] = stats["auc"]
+                    print("Loading model from", test_model_path)
+                    test_model_path = Path(test_model_path)
 
-                    single_model_result[i]["f1"].append(stats["f1"][1])
-                    single_model_result[i]["auc"].append(stats["auc"])
-
-                    predictions = pd.DataFrame(
-                        [
-                            own_company_flags,
-                            family_flags,
-                            distances,
-                            stats["predicted_labels"],
-                            stats["labels"].numpy(),
-                            stats["predictions"].numpy(),
-                        ],
-                        index=[
-                            "own_company_flag",
-                            "family_flag",
-                            "distance",
-                            "prediction",
-                            "label",
-                            "score",
-                        ],
-                    ).T
-
-                    predictions["best_thr"] = np.exp(best_thr)
-                    predictions["dataset"] = f"{horizon}_{frequency}_{direction}"
-                    predictions["architecture"] = architecture
-                    predictions["dataset_seed"] = args["data_split_seed"]
-                    predictions["seed"] = args["seed"]
-                    prediction_list.append(predictions)
-
-                    non_own_companies = evaluate_predictions(
-                        predictions[predictions.own_company_flag == 0]
-                    )
-                    table_8_non_own_securities.at[
-                        (architecture, horizon, frequency, direction), "F1-score"
-                    ] = non_own_companies.f1
-                    table_8_non_own_securities.at[
-                        (architecture, horizon, frequency, direction), "AUC"
-                    ] = non_own_companies.auc
-
-                    single_model_result[i]["non_own_f1"].append(non_own_companies.f1)
-                    single_model_result[i]["non_own_auc"].append(non_own_companies.auc)
-
-                    insiders_non_own_companies = evaluate_predictions(
-                        predictions[
-                            (predictions.own_company_flag == 0)
-                            & (predictions.family_flag == 0)
-                        ]
-                    )
-                    table_9_non_own_securities_self_trading.at[
-                        (architecture, horizon, frequency, direction), "F1-score"
-                    ] = insiders_non_own_companies.f1
-                    table_9_non_own_securities_self_trading.at[
-                        (architecture, horizon, frequency, direction), "AUC"
-                    ] = insiders_non_own_companies.auc
-
-                    single_model_result[i]["insiders_non_own_f1"].append(
-                        non_own_companies.f1
-                    )
-                    single_model_result[i]["insiders_non_own_auc"].append(
-                        non_own_companies.auc
+                    path_model_checkpoint = test_model_path / "checkpoint.pt"
+                    model.load_state_dict(
+                        torch.load(path_model_checkpoint, weights_only=True, map_location=device)
                     )
 
-        if is_variational_model(architecture):
-            for i in range(len(single_model_result)):
-                keys = [*single_model_result[i].keys()]
+                set_model_eval(model)
+
+                test_loader = data_loader["test"]
+                test_loader.sampler.shuffle = False
+                data_loader["valid"].sampler.shuffle = False
+
+                if args["class_weight_balanced"]:
+                    class_weight = test_loader.dataset.get_class_weight()
+                else:
+                    class_weight = torch.ones(test_loader.dataset.n_classes)
+
+                test_samples = test_samples if test_samples is not None else [None]
+
+                for r in range(runs):
+                    for i, samples in enumerate(test_samples):
+
+                        print(
+                            {
+                                "rid": f"{r + 1} / {runs}",
+                                "said": f"{i + 1} / {len(test_samples)}",
+                            },
+                            end="\r",
+                        )
+
+                        if samples is not None:
+                            single_model_result[i]["test_samples"] = samples
+
+                        if test_with_uncertainty:
+
+                            if architecture in ["vgat", "uavgat", "uaeavgat", "ualaivgat", "uafmcivgat"]:
+                                valid_loss, best_thr, valid_stats, uncertainty_scores, _, _ = (
+                                    evaluate_with_uncertainty_and_attention(
+                                        model,
+                                        class_weight,
+                                        data_loader["valid"],
+                                        device,
+                                        samples=samples,
+                                        draw_uncertainty_graphs=draw_uncertainty_graphs,
+                                        plots_folder_path=plots_folder_path,
+                                    )
+                                )
+                            else:
+
+                                valid_loss, best_thr, valid_stats, uncertainty_scores, _, _ = (
+                                    evaluate_with_uncertainty(
+                                        model,
+                                        class_weight,
+                                        data_loader["valid"],
+                                        device,
+                                        samples=samples,
+                                        draw_uncertainty_graphs=draw_uncertainty_graphs,
+                                        # plots_folder_path=plots_folder_path,
+                                    )
+                                )
+                        else:
+                            valid_loss, best_thr, valid_stats, _, _, _ = evaluate(
+                                model,
+                                class_weight,
+                                data_loader["valid"],
+                                device,
+                                samples=samples,
+                            )
+
+                        distances = []
+                        family_flags = []
+                        own_company_flags = []
+                        for data, _ in test_loader:
+                            (
+                                _,
+                                _,
+                                batch_distances,
+                                batch_family_flags,
+                                batch_own_company_flags,
+                                _,
+                            ) = data
+                            distances.append(batch_distances.numpy())
+                            family_flags.append(batch_family_flags.numpy())
+                            own_company_flags.append(batch_own_company_flags.numpy())
+                        distances = np.hstack(distances)
+                        family_flags = np.hstack(family_flags)
+                        own_company_flags = np.hstack(own_company_flags)
+
+
+                        os.makedirs(plots_folder_path, exist_ok=True)
+                        if r == 0 and sid == 0:
+                            calibration_plots_path = plots_folder_path / f"calibration_plot_s{samples}.png"
+                        else:
+                            calibration_plots_path = None
+
+                        reliability_results = None
+
+                        if test_with_uncertainty:
+                            
+                            if architecture in ["vgat", "uavgat", "uaeavgat", "ualaivgat", "uafmcivgat"]:
+                                _, _, stats, uncertainty_scores, y_true, y_score = evaluate_with_uncertainty_and_attention(
+                                    model, class_weight, test_loader, device, best_thr=best_thr, samples=samples
+                                )
+                            else:
+                                _, _, stats, uncertainty_scores, y_true, y_score = evaluate_with_uncertainty(
+                                    model, class_weight, test_loader, device, best_thr=best_thr, samples=samples
+                                )
+                                
+                            
+                            if r == 0 and sid == 0:
+                                
+                                if samples not in all_y_true:
+                                    all_y_true[samples] = {}
+                                    all_y_score[samples] = {}
+                                    all_y_uncertainty[samples] = {}
+
+                                    if r not in all_y_true[samples]:
+                                        all_y_true[samples][r] = []
+                                        all_y_score[samples][r] = []
+                                        all_y_uncertainty[samples][r] = []
+
+                                all_y_true[samples][r] += y_true
+                                all_y_score[samples][r] += y_score
+                                all_y_uncertainty[samples][r] += uncertainty_scores
+                        else:
+                            _, _, stats, reliability_results, y_true, y_score = evaluate(
+                                model, class_weight, test_loader, device, best_thr=best_thr, samples=samples, calibration_plots_path=calibration_plots_path
+                            )
+
+                            if r == 0 and sid == 0:
+                                
+                                if samples not in all_y_true:
+                                    all_y_true[samples] = {}
+                                    all_y_score[samples] = {}
+
+                                    if r not in all_y_true[samples]:
+                                        all_y_true[samples][r] = []
+                                        all_y_score[samples][r] = []
+
+                                all_y_true[samples][r] += y_true
+                                all_y_score[samples][r] += y_score
+
+                        table_5_performance.at[
+                            (architecture, horizon, frequency, direction), "F1-score"
+                        ] = stats["f1"][1]
+                        table_5_performance.at[
+                            (architecture, horizon, frequency, direction), "AUC"
+                        ] = stats["auc"]
+
+                        single_model_result[i]["f1"].append(stats["f1"][1])
+                        single_model_result[i]["auc"].append(stats["auc"])
+
+                        predictions = pd.DataFrame(
+                            [
+                                own_company_flags,
+                                family_flags,
+                                distances,
+                                stats["predicted_labels"],
+                                stats["labels"].numpy(),
+                                stats["predictions"].numpy(),
+                            ],
+                            index=[
+                                "own_company_flag",
+                                "family_flag",
+                                "distance",
+                                "prediction",
+                                "label",
+                                "score",
+                            ],
+                        ).T
+
+                        predictions["best_thr"] = np.exp(best_thr)
+                        predictions["dataset"] = f"{horizon}_{frequency}_{direction}"
+                        predictions["architecture"] = architecture
+                        predictions["dataset_seed"] = args["data_split_seed"]
+                        predictions["seed"] = args["seed"]
+                        prediction_list.append(predictions)
+
+                        non_own_companies = evaluate_predictions(
+                            predictions[predictions.own_company_flag == 0]
+                        )
+                        table_8_non_own_securities.at[
+                            (architecture, horizon, frequency, direction), "F1-score"
+                        ] = non_own_companies.f1
+                        table_8_non_own_securities.at[
+                            (architecture, horizon, frequency, direction), "AUC"
+                        ] = non_own_companies.auc
+
+                        single_model_result[i]["non_own_f1"].append(non_own_companies.f1)
+                        single_model_result[i]["non_own_auc"].append(non_own_companies.auc)
+
+                        insiders_non_own_companies = evaluate_predictions(
+                            predictions[
+                                (predictions.own_company_flag == 0)
+                                & (predictions.family_flag == 0)
+                            ]
+                        )
+                        table_9_non_own_securities_self_trading.at[
+                            (architecture, horizon, frequency, direction), "F1-score"
+                        ] = insiders_non_own_companies.f1
+                        table_9_non_own_securities_self_trading.at[
+                            (architecture, horizon, frequency, direction), "AUC"
+                        ] = insiders_non_own_companies.auc
+
+                        single_model_result[i]["insiders_non_own_f1"].append(
+                            non_own_companies.f1
+                        )
+                        single_model_result[i]["insiders_non_own_auc"].append(
+                            non_own_companies.auc
+                        )
+
+            if is_variational_model(architecture):
+                for i in range(len(single_model_result)):
+                    keys = [*single_model_result[i].keys()]
+                    for key in keys:
+                        if key not in ["seeds", "test_samples"]:
+                            std = 0 if len(single_model_result[i][key]) <= 1 else stdev(single_model_result[i][key])
+                            single_model_result[i][key] = mean(single_model_result[i][key])
+                            single_model_result[i][key + "_std"] = std
+
+            else:
+                single_model_result = single_model_result[0]
+                keys = [*single_model_result.keys()]
                 for key in keys:
-                    if key not in ["seeds", "test_samples"]:
-                        std = 0 if len(single_model_result[i][key]) <= 1 else stdev(single_model_result[i][key])
-                        single_model_result[i][key] = mean(single_model_result[i][key])
-                        single_model_result[i][key + "_std"] = std
+                    if key != "seeds":
+                        std = 0 if len(single_model_result[key]) <= 1 else stdev(single_model_result[key])
+                        single_model_result[key] = mean(single_model_result[key])
+                        single_model_result[key + "_std"] = std
 
-        else:
-            single_model_result = single_model_result[0]
-            keys = [*single_model_result.keys()]
-            for key in keys:
-                if key != "seeds":
-                    std = 0 if len(single_model_result[key]) <= 1 else stdev(single_model_result[key])
-                    single_model_result[key] = mean(single_model_result[key])
-                    single_model_result[key + "_std"] = std
+            if evaluation_result_subfolder is not None:
+                results_folder_path = results_folder_path / evaluation_result_subfolder
 
-        if evaluation_result_subfolder is not None:
-            results_folder_path = results_folder_path / evaluation_result_subfolder
+            os.makedirs(results_folder_path, exist_ok=True)
 
-        os.makedirs(results_folder_path, exist_ok=True)
+            with open(results_folder_path / "result.json", "w") as f:
+                json.dump(single_model_result, f)
 
-        with open(results_folder_path / "result.json", "w") as f:
-            json.dump(single_model_result, f)
+        for s in all_y_true:
+            for r in [0]:
+                combined_plots_folder_path = (
+                    Path(plots_folder)
+                    / path
+                    / name
+                    / f"{architecture}{model_name_suffix}{vnn_subname}"
+                )
+                combined_reliability_folder_path = (
+                    Path(results_folder)
+                    / path
+                    / name
+                    / f"{architecture}{model_name_suffix}{vnn_subname}"
+                )
+
+                os.makedirs(combined_plots_folder_path, exist_ok=True)
+                os.makedirs(combined_reliability_folder_path, exist_ok=True)
+
+                total_reliability_results = {}
+
+                reliability_results_normal = plot_reliability_diagram(
+                    all_y_true[s][r], all_y_score[s][r], output_path=combined_plots_folder_path / f"calibration_plot_s{s}_combined.png"
+                )
+
+                reliability_results_scaled = plot_reliability_diagram(
+                    all_y_true[s][r], all_y_score[s][r], output_path=combined_plots_folder_path / f"scaled_down_calibration_plot_s{s}_combined.png", scale_down=True
+                )
+
+                total_reliability_results["normal"] = reliability_results_normal
+                total_reliability_results["scaled_down"] = reliability_results_scaled
+
+                if test_with_uncertainty:
+                    for uncertainty_influence in [1]:
+                        reliability_results_var = plot_variance_reliability_diagram(
+                            all_y_true[s][r], all_y_score[s][r], all_y_uncertainty[s][r], output_path=combined_plots_folder_path / f"uncertainty_calibration_plot_s{s}_ui{uncertainty_influence}_combined.png", uncertainty_influence=uncertainty_influence
+                        )
+
+                        total_reliability_results[f"uncertainty_ui{uncertainty_influence}"] = reliability_results_var
+                
+                with open(combined_reliability_folder_path / f"reliability_results_s{s}_combined.json", "w") as f:
+                    json.dump(total_reliability_results, f)
+
+                print()
 
     if len(prediction_list) <= 0:
         print("No predictions to evaluate")
