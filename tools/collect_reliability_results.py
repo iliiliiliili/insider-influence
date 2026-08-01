@@ -152,6 +152,8 @@ def plot_reliability_scores(df, output_file_name):
     )
     plot_mce.save(str(output_file_name).replace(".png", "_mce.png"), dpi=300)
 
+
+# Used to create reliability figures (4 in the paper)
 def main(
     root="./results-reliability-with-uncertainty",
     plots_folder="plots-reliability-with-uncertainty",

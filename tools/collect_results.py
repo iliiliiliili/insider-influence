@@ -783,6 +783,7 @@ def find_experiments(
     return all_experiments
 
 
+# Used to create result figures (2, 3 in the paper)
 def main(
     root="./results",
     plots_folder="plots",

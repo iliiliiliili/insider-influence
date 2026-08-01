@@ -1,12 +1,39 @@
 [![DOI](https://zenodo.org/badge/513898679.svg)](https://zenodo.org/badge/latestdoi/513898679)
 
-# Implementation of [Variational Graph Convolutional Neural Networks](https://arxiv.org/abs/2507.01699) for financial data analysis. 
+# Implementation of [Variational Graph Convolutional Neural Networks](https://arxiv.org/abs/2507.01699) for financial data analysis.
 
-# Model performance
+## Installation
 
-The model performance for different data sets and scenarios can be retrieved by running public_main.py
+Use `bash -i install.sh` to install with Conda and module. Edit to select different python and cuda versions or to install without module/Conda tools.
 
-# Insider influence data set
+## Usage
+
+### Train one
+
+```
+python train.py --name=usual --dataset_folder=data --networks=gcn --path=. --results_folder=results --models_folder=models
+```
+
+### Train modeling
+
+```
+python modeling.py base_experiment_all --devices=8 --processes_per_device=3",
+```
+
+```
+python modeling.py train_for_relaibility_diagrams --results_folder=results-reliability --plots_folder=plots-reliability-with-uncertainty-extra",
+```
+
+### Test a specific model
+
+```
+python train.py test --name=activation_end/gstd-mode_multiply/gstd_0.1 --networks=vgat --train_samples=8 --path=vnn_gat/iv_baselines_f0x3 --init_vnn_from=models/baselines/gat --init_vnn_from_original=False --INIT_WEIGHTS=fill:stds:0.001:0.001 --global_std_mode=multiply --activation_mode=end --batch_norm_mode=end --ignore_existing=True --GLOBAL_STD=0.1 --test_with_uncertainty=False --draw_uncertainty_graphs=False --test_samples=[20] --seeds=[1] --runs_per_variational_model=1
+```
+
+## Methods
+Baseline spatial methods (GAT, GCN) and their varaitional versions (VGAT, VGCN) are implemented in `./networks`. Variational models start with a `vnn` prefix. 
+
+## Insider influence data set
 
 An illustration of the code that is used to construct the final data sets from raw data are in files public_data_generation_illustation.py and public_dataset_anonymization.py.
 
