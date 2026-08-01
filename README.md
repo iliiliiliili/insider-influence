@@ -1,5 +1,3 @@
-[![DOI](https://zenodo.org/badge/513898679.svg)](https://zenodo.org/badge/latestdoi/513898679)
-
 # Implementation of [Variational Graph Convolutional Neural Networks](https://arxiv.org/abs/2507.01699) for financial data analysis.
 
 ## Installation
@@ -33,7 +31,7 @@ python train.py test --name=activation_end/gstd-mode_multiply/gstd_0.1 --network
 ## Methods
 Baseline spatial methods (GAT, GCN) and their varaitional versions (VGAT, VGCN) are implemented in `./networks`. Variational models start with a `vnn` prefix. 
 
-## Insider influence data set
+## [Insider influence data set](https://doi.org/10.6084/m9.figshare.20310240.v1)
 
 An illustration of the code that is used to construct the final data sets from raw data are in files public_data_generation_illustation.py and public_dataset_anonymization.py.
 
