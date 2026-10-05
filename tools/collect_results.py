@@ -95,6 +95,7 @@ class SingleResult:
     non_own_auc: float
     insiders_non_own_f1: float
     insiders_non_own_auc: float
+    best_samples: int
 
 
 @dataclass
@@ -204,6 +205,16 @@ def create_mean_results(experiments: List[Experiment]):
         )
 
     def mean_of_results(results: List[SingleResult]):
+
+        def median(lst):
+            sorted_lst = sorted(lst)
+            n = len(sorted_lst)
+            mid = n // 2
+            if n % 2 == 0:
+                return (sorted_lst[mid - 1] + sorted_lst[mid]) / 2
+            else:
+                return sorted_lst[mid]
+
         return SingleResult(
             results[0].samples,
             results[0].batch,
@@ -214,6 +225,7 @@ def create_mean_results(experiments: List[Experiment]):
             mean([r.non_own_auc for r in results]),
             mean([r.insiders_non_own_f1 for r in results]),
             mean([r.insiders_non_own_auc for r in results]),
+            median([r.best_samples for r in results]),
         )
 
     for experiment in experiments:
@@ -307,6 +319,7 @@ def show_inclusion_table(
         "ino auc",
         "s",
         "ts",
+        "bs",
         *extra_flags,
     ]
     table = []
@@ -323,6 +336,7 @@ def show_inclusion_table(
         "auc",
         "s",
         "ts",
+        "bs",
     ]
 
     data_frame = {}
@@ -460,7 +474,7 @@ def show_inclusion_table(
                                 "...",
                                 "...",
                                 "...",
-                                # "...",
+                                "...",
                                 "...",
                                 *["..." for _ in extra_flags],
                             ]
@@ -531,6 +545,7 @@ def show_inclusion_table(
                             ("" if experiment.samples is None else experiment.samples),
                             # ("" if experiment.batch is None else experiment.batch),
                             ("" if best_result.samples == -1 else best_result.samples),
+                            ("" if best_result.best_samples == -1 else best_result.best_samples),
                             *[flag_to_text(f) for f in extra_flags],
                         ]
                         table.append(colored_line(experiment_color(experiment), line))
@@ -558,6 +573,9 @@ def show_inclusion_table(
                         data_frame["ts"].append(
                             0 if best_result.samples == -1 else best_result.samples
                         )
+                        data_frame["bs"].append(
+                            0 if best_result.best_samples == -1 else best_result.best_samples
+                        )
                         for f in frame_extra_flags:
                             if f[1] not in base_data_frame_entries:
                                 data_frame[f[1]].append(flag_to_text(f[1]))
@@ -577,7 +595,7 @@ def show_inclusion_table(
                             "",
                             "",
                             "",
-                            # "",
+                            "",
                             "",
                             "",
                             *["" for _ in extra_flags],
@@ -702,6 +720,9 @@ def find_experiments(
             elif params[i] == "dropout-type":
                 flags.append(("drop-t", params[i + 1]))
                 i += 1
+            elif params[i] == "init":
+                flags.append(("init", params[i + 1]))
+                i += 1
             elif params[i] == "gstd":
                 flags.append(("gstd", params[i + 1]))
                 i += 1
@@ -764,6 +785,7 @@ def find_experiments(
                     non_own_auc=d["non_own_auc"],
                     insiders_non_own_f1=d["insiders_non_own_f1"],
                     insiders_non_own_auc=d["insiders_non_own_auc"],
+                    best_samples=d["best_samples"] if "best_samples" in d else -1
                 )
 
                 experiment_results.append(single_result)
@@ -777,6 +799,18 @@ def find_experiments(
             age_days=file_age_in_days(full_file_name),
             path=full_file_name,
         )
+
+        # if "nondibnn" in experiment.path:
+        #     experiment_2_samples = Experiment(
+        #         network_type=network_type,
+        #         samples=samples,
+        #         batch=batch,
+        #         flags=flags,
+        #         results=[a for a in experiment_results if a.samples == 2],
+        #         age_days=file_age_in_days(full_file_name),
+        #         path=full_file_name,
+        #     )
+        #     all_experiments.append(experiment_2_samples)
 
         all_experiments.append(experiment)
 

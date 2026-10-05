@@ -37,6 +37,28 @@ from networks.dropout_gat import DropoutBatchGAT
 from draw import draw_uncertain_attention_graphs, draw_uncertain_attentions
 
 
+def custom_repr(self):
+
+    has_mean = self.dtype in [torch.float16, torch.float32, torch.float64]
+    if len(self.shape) > 0:
+        return (
+            f"T{tuple(self.shape)}".replace("(", "[").replace(")", "]")
+            + (f"<m={self.mean().item():.2f}>" if has_mean else "")
+            + (f"<s={self.sum().item()}>" if not has_mean else "")
+            + f".{self.device.type}"
+            )
+    
+    else:
+        return original_repr(self)
+
+
+
+original_repr = torch.Tensor.__repr__
+torch.Tensor.__repr__ = custom_repr
+torch.Tensor.__str__ = original_repr
+torch.Tensor.orepr = lambda self: print(original_repr(self))
+
+
 def set_model_eval(model):
 
     model.eval()
@@ -470,6 +492,217 @@ def evaluate(model, class_weight, loader, device, best_thr=None, samples=None, c
     return *metris, reliability_results, y_true, y_score
 
 
+def rank_dibnn(all_outputs_by_sample, y_true, best_thr, initialize_count, verbose=False, with_replacement=False):
+
+    all_samples = torch.stack([torch.stack(all_outputs_by_sample[i]) for i in range(len(all_outputs_by_sample.keys()))])
+
+
+    def categorical_log_likelihood(y_true, logits):
+        y_true = torch.tensor(y_true, dtype=torch.long)
+
+        dist = torch.distributions.Categorical(logits=logits)
+        log_likelihoods = dist.log_prob(y_true)
+        return log_likelihoods
+    
+    def evaluate_multiple_sets_log_likelihood_val(selected_sample_sets):
+        
+        current_samples = torch.stack([all_samples[selected_sample_sets[i]] for i in range(len(selected_sample_sets))])
+        mean = torch.mean(current_samples, dim=1)
+
+        if len(selected_sample_sets[0]) == 1:
+            std = torch.ones_like(mean)
+        else:
+            std = torch.std(current_samples, dim=1)
+
+        log_likelihoods = categorical_log_likelihood(y_true, mean)
+        log_likelihoods = torch.mean(log_likelihoods, dim=1)
+
+        return log_likelihoods
+
+    def add_sample_to_best_log_likelihood(best_samples):
+
+            all_sample_sets = []
+
+            for i in range(0, len(all_outputs_by_sample.keys())):
+                if (i not in best_samples):
+                    all_sample_sets.append([*best_samples, i])
+            
+            log_likelihoods = evaluate_multiple_sets_log_likelihood_val(all_sample_sets)
+            best_samples_id = torch.argmax(log_likelihoods)
+            best_set = all_sample_sets[best_samples_id]
+            best_log_likelihood = log_likelihoods[best_samples_id].item()
+
+            return best_set, best_log_likelihood, log_likelihoods
+
+    def greedy_search():
+
+        best_samples = []
+        results = {}
+
+        if initialize_count > 0:
+            
+            best_samples, best_val_log_likelihood, val_log_likelihoods = add_sample_to_best_log_likelihood(best_samples)
+            initial_sample_order = torch.argsort(-val_log_likelihoods).tolist()
+
+            best_samples = initial_sample_order[:initialize_count]
+
+        for num_samples in range(2, len(best_samples) + 1):
+
+            y_score = torch.mean(torch.stack([all_samples[best_samples[i]] for i in range(num_samples)]), dim=0)
+            y_pred = torch.argmax(y_score, dim=1)
+            single_scores = y_score[:, 1].data.tolist()
+
+            best_metrics = calculate_metrics(y_true, single_scores, y_pred, 0, 1, best_thr)
+
+            if verbose:
+                print("++", len(best_samples[:num_samples]), "kl", best_metrics[2]["f1"][1], "val_ll", val_log_likelihoods[initial_sample_order[:num_samples]].mean().item(), flush=True)
+
+            results[num_samples] = {
+                "best_samples": best_samples[:num_samples],
+                "best_f1": best_metrics[2]["f1"][1],
+                "best_metrics": best_metrics,
+                "y_score": single_scores,
+            }
+
+            results[num_samples]["best_val_log_likelihood"] = -1000
+
+        for num_samples in range(len(best_samples) + 1, len(all_outputs_by_sample.keys())):
+            best_samples, best_val_log_likelihood, val_log_likelihoods = add_sample_to_best_log_likelihood(best_samples)
+
+            y_score = torch.mean(torch.stack([all_samples[best_samples[i]] for i in range(num_samples)]), dim=0)
+            y_pred = torch.argmax(y_score, dim=1)
+            single_scores = y_score[:, 1].data.tolist()
+
+            best_metrics = calculate_metrics(y_true, single_scores, y_pred, 0, 1, best_thr)
+
+            if verbose:
+                print("++", len(best_samples), "kl", best_metrics[2]["f1"][1], "val_ll", best_val_log_likelihood, flush=True)
+
+            if num_samples > 1:
+
+                results[num_samples] = {
+                    "best_samples": best_samples,
+                    "best_f1": best_metrics[2]["f1"][1],
+                    "best_metrics": best_metrics,
+                    "y_score": single_scores,
+                }
+
+                results[num_samples]["best_val_log_likelihood"] = best_val_log_likelihood
+
+        return results
+    
+    return greedy_search()
+
+def create_vnn_sampled_models(model, loader, device, samples):
+
+    extra_forward_args = {"samples": samples}
+
+    set_model_eval(model)
+    all_outputs_by_sample = {i:[] for i in range(samples)}
+
+    for _, (data, target) in enumerate(loader):
+        bs = data[0].size(0)
+
+        target = target.to(device)  # labels
+        data = [tensor.to(device) for tensor in data]
+
+        output, separate_outputs = model(data[:2], data[-1], return_outputs=True, **extra_forward_args)
+
+        for i in range(samples):
+            all_outputs_by_sample[i] += (separate_outputs[i].detach().cpu())
+
+    return all_outputs_by_sample
+
+
+def evaluate_dibnn(model, class_weight, loader, device, sample_seeds, best_thr=None, samples=None, calibration_plots_path=None, initialize_count=0):
+
+    extra_forward_args = {}
+
+    if samples is not None:
+        extra_forward_args["samples"] = samples
+    
+    set_model_eval(model)
+    total = 0.0
+    loss = 0.0
+    y_true, y_pred, y_score = [], [], []
+    class_weight = class_weight.to(device)
+    all_outputs_by_sample = {i:[] for i in range(samples)}
+
+    for _, (data, target) in enumerate(loader):
+        # graph, features, labels, vertices = batch
+        bs = data[0].size(0)
+
+        target = target.to(device)  # labels
+        data = [tensor.to(device) for tensor in data]
+
+        output, separate_outputs = model(data[:2], data[-1], return_outputs=True, sample_seeds=sample_seeds, **extra_forward_args)
+
+        for i in range(samples):
+            all_outputs_by_sample[i] += (separate_outputs[i].detach().cpu())
+
+        loss_batch = F.nll_loss(output, target, class_weight)
+        loss += bs * loss_batch.item()
+        y_true += target.data.tolist()
+        y_pred += output.max(1)[1].data.tolist()
+        y_score += output[:, 1].data.tolist()
+        total += bs
+
+    ranking = rank_dibnn(all_outputs_by_sample, y_true, best_thr, verbose=True, initialize_count=initialize_count)
+
+    ranking_val_lls = {num_samples: ranking[num_samples]["best_val_log_likelihood"] for num_samples in ranking.keys() if "best_val_log_likelihood" in ranking[num_samples]}
+    best_ranking_val_ll_idx = max(ranking_val_lls, key=ranking_val_lls.get)
+    f1_of_best_model = ranking[best_ranking_val_ll_idx]["best_f1"]
+    metrics_of_best_model = ranking[best_ranking_val_ll_idx]["best_metrics"]
+    y_score_of_best_model = ranking[best_ranking_val_ll_idx]["y_score"]
+
+    reliability_results = None
+
+    if calibration_plots_path is not None:
+        reliability_results = plot_reliability_diagram(y_true, y_score_of_best_model, output_path=calibration_plots_path)
+
+    return *metrics_of_best_model, reliability_results, y_true, y_score_of_best_model, ranking, best_ranking_val_ll_idx
+
+
+def evaluate_best_dibnn_on_test(model, class_weight, loader, device, sample_seeds, ranking, best_model_idx, best_thr=None, samples=None, calibration_plots_path=None):
+
+    extra_forward_args = {}
+
+    set_model_eval(model)
+    total = 0.0
+    loss = 0.0
+    y_true, y_pred, y_score = [], [], []
+    class_weight = class_weight.to(device)
+    best_sample_seeds = [sample_seeds[i] for i in ranking[best_model_idx]["best_samples"]]
+    samples = len(best_sample_seeds)
+
+    for _, (data, target) in enumerate(loader):
+        # graph, features, labels, vertices = batch
+        bs = data[0].size(0)
+
+        target = target.to(device)  # labels
+        data = [tensor.to(device) for tensor in data]
+
+        output, separate_outputs = model(data[:2], data[-1], return_outputs=True, sample_seeds=best_sample_seeds, samples=samples, **extra_forward_args)
+
+        loss_batch = F.nll_loss(output, target, class_weight)
+        loss += bs * loss_batch.item()
+        y_true += target.data.tolist()
+        y_pred += output.max(1)[1].data.tolist()
+        y_score += output[:, 1].data.tolist()
+        total += bs
+
+    metrics = calculate_metrics(y_true, y_score, y_pred, loss, total, best_thr)
+
+    reliability_results = None
+
+    if calibration_plots_path is not None:
+        reliability_results = plot_reliability_diagram(y_true, y_score, output_path=calibration_plots_path)
+
+    return *metrics, reliability_results, y_true, y_score
+
+
+
+
 def evaluate_with_uncertainty(
     model,
     class_weight,
@@ -690,6 +923,8 @@ def main(
     name_for_loading=None,
     result_suffix="",
     graph_node_count=50,
+    evaluate_with_dibnn=False,
+    initialize_count=0,
     **model_kwargs,
 ):
 
@@ -763,6 +998,7 @@ def main(
                         "non_own_auc": [],
                         "insiders_non_own_f1": [],
                         "insiders_non_own_auc": [],
+                        "best_samples": [],
                         "seeds": seeds,
                     }
                     for _ in test_samples
@@ -1016,6 +1252,10 @@ def main(
 
                         if samples is not None:
                             single_model_result[i]["test_samples"] = samples
+    
+                        sample_seeds = None
+                        ranking = None
+                        best_samples = None
 
                         if test_with_uncertainty:
 
@@ -1045,13 +1285,26 @@ def main(
                                     )
                                 )
                         else:
-                            valid_loss, best_thr, valid_stats, _, _, _ = evaluate(
-                                model,
-                                class_weight,
-                                data_loader["valid"],
-                                device,
-                                samples=samples,
-                            )
+                            if evaluate_with_dibnn:
+                                sample_seeds = torch.randint(0, 2**32 - 1, (samples,)).tolist()
+                                
+                                valid_loss, best_thr, valid_stats, _, _, _, ranking, best_samples = evaluate_dibnn(
+                                    model,
+                                    class_weight,
+                                    data_loader["valid"],
+                                    device,
+                                    sample_seeds=sample_seeds,
+                                    samples=samples,
+                                    initialize_count=initialize_count
+                                )
+                            else:
+                                valid_loss, best_thr, valid_stats, _, _, _ = evaluate(
+                                    model,
+                                    class_weight,
+                                    data_loader["valid"],
+                                    device,
+                                    samples=samples,
+                                )
 
                         distances = []
                         family_flags = []
@@ -1109,9 +1362,15 @@ def main(
                                 all_y_score[samples][r] += y_score
                                 all_y_uncertainty[samples][r] += uncertainty_scores
                         else:
-                            _, _, stats, reliability_results, y_true, y_score = evaluate(
-                                model, class_weight, test_loader, device, best_thr=best_thr, samples=samples, calibration_plots_path=calibration_plots_path
-                            )
+                            if evaluate_with_dibnn:
+                                _, _, stats, reliability_results, y_true, y_score = evaluate_best_dibnn_on_test(
+                                    model, class_weight, test_loader, device, best_thr=best_thr, samples=samples, calibration_plots_path=calibration_plots_path,
+                                    sample_seeds=sample_seeds, ranking=ranking, best_model_idx=best_samples
+                                )
+                            else:
+                                _, _, stats, reliability_results, y_true, y_score = evaluate(
+                                    model, class_weight, test_loader, device, best_thr=best_thr, samples=samples, calibration_plots_path=calibration_plots_path
+                                )
 
                             if r == 0 and sid == 0:
                                 
@@ -1135,6 +1394,9 @@ def main(
 
                         single_model_result[i]["f1"].append(stats["f1"][1])
                         single_model_result[i]["auc"].append(stats["auc"])
+
+                        if evaluate_with_dibnn:
+                            single_model_result[i]["best_samples"].append(best_samples)
 
                         predictions = pd.DataFrame(
                             [
@@ -1195,14 +1457,27 @@ def main(
                             non_own_companies.auc
                         )
 
+            def median(lst):
+                if len(lst) == 0:
+                    return -1
+                sorted_lst = sorted(lst)
+                n = len(sorted_lst)
+                mid = n // 2
+                if n % 2 == 0:
+                    return (sorted_lst[mid - 1] + sorted_lst[mid]) / 2.0
+                else:
+                    return sorted_lst[mid]
+
             if is_variational_model(architecture):
                 for i in range(len(single_model_result)):
                     keys = [*single_model_result[i].keys()]
                     for key in keys:
-                        if key not in ["seeds", "test_samples"]:
+                        if key not in ["seeds", "test_samples", "ranking", "best_samples"]:
                             std = 0 if len(single_model_result[i][key]) <= 1 else stdev(single_model_result[i][key])
                             single_model_result[i][key] = mean(single_model_result[i][key])
                             single_model_result[i][key + "_std"] = std
+                        if key in ["best_samples"]:
+                            single_model_result[i][key] = median(single_model_result[i][key])
 
             else:
                 single_model_result = single_model_result[0]

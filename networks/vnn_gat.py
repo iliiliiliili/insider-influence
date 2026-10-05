@@ -71,7 +71,7 @@ class VariationalBatchGAT(nn.Module):
             )
 
     def forward(
-        self, data, normalized_embedding=None, samples=None, return_uncertainty=False
+        self, data, normalized_embedding=None, samples=None, return_uncertainty=False, return_outputs=False, sample_seeds=None
     ):
 
         if samples is None:
@@ -84,6 +84,9 @@ class VariationalBatchGAT(nn.Module):
         all_attentions = {}
 
         for s in range(samples):
+
+            if sample_seeds is not None:
+                torch.manual_seed(sample_seeds[s])
 
             (
                 adj,
@@ -121,8 +124,10 @@ class VariationalBatchGAT(nn.Module):
                 attentions[key] = (att, att_var)
 
             return result, result_var, attentions
-        else:
-            return result
+        
+        if return_outputs:
+            return result, outputs
+        return result
 
 
 def filter_attentions(att, att_var, limit=0.5, filtered_value=0.01):
