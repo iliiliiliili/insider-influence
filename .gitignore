@@ -14,5 +14,7 @@ results
 results-*
 plots
 plots-*
-inclusion_table*.txt
+*_table*.txt
+*_table*.tex
+best_experiments*
 errors.*

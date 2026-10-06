@@ -107,9 +107,18 @@ def show_reliability_table(results):
         table.append(line)
     print(tabulate(table))
 
+    model_name_map = {
+        "gat": "GAT",
+        "gcn": "GCN",
+        "vgat": "VGAT",
+        "vgcn": "VGCN",
+        "dropoutgcn": "Dropout-GCN",
+        "dropoutgat": "Dropout-GAT",
+    }
+
     df = DataFrame([
         {
-            "Model Type": r.model_type,
+            "Model Type": model_name_map[r.model_type],
             "Section": r.section,
             "ECE": r.ece,
             "MCE": r.mce,
@@ -133,10 +142,14 @@ def plot_reliability_scores(df, output_file_name):
     df["Section"] = Categorical(df["Section"], ordered=True, categories=["Normal", "Uncertainty-scaled", "Scaled-down"])
     df["Variance Scale"] = df["gstd"].astype(str).map(lambda x: x if x != "nan" else "-")
     df = df.sort_values(by="iv_model")
-    df["Initialized Models"] = df["iv_model"].astype(str).map(lambda x: "IVGAT/IVGCN" if x == "True" else "VGAT/VGCN")
+    df["Initialized Models"] = df["iv_model"].astype(str).map(lambda x: "IVGAT/IVGCN" if x == "True" else "Other Models")
+
+    model_order = reversed(["GCN", "Dropout-GCN", "VGCN", "IVGCN", "GAT", "Dropout-GAT", "VGAT", "IVGAT"])
+    df["Model Type"] = Categorical(df["Model Type"], ordered=True, categories=model_order)
+
     plot = (
         ggplot(df)
-        + aes(x="ECE", y="Model Type", color="Test Samples", shape="Initialized Models", fill="Variance Scale")
+        + aes(x="ECE", y="Model Type", color="Test Samples", shape="Initialized Models")
         + geom_point(size=2, alpha=1)
         + facet_wrap(["Section"], ncol=1)
         + theme(figure_size=(4, 4.5), strip_text_x=element_text(size=8))
@@ -145,7 +158,7 @@ def plot_reliability_scores(df, output_file_name):
 
     plot_mce = (
         ggplot(df)
-        + aes(x="MCE", y="Model Type", color="Test Samples", shape="Initialized Models", fill="Variance Scale")
+        + aes(x="MCE", y="Model Type", color="Test Samples", shape="Initialized Models")
         + geom_point(size=2, alpha=1)
         + facet_wrap(["Section"], ncol=1)
         + theme(figure_size=(4, 4.5), strip_text_x=element_text(size=8))
@@ -158,8 +171,8 @@ def main(
     root="./results-reliability-with-uncertainty",
     plots_folder="plots-reliability-with-uncertainty",
     plot_name="reliability_scores",
-    gstd_filter=[0.5, 0.1, 0.05],
-    train_samples_filter=[2],
+    gstd_filter=None,
+    train_samples_filter=None,
 ):
     results = find_reliability_results(root, gstd_filter, train_samples_filter)
     df = show_reliability_table(results)

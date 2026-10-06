@@ -904,7 +904,7 @@ def main(
     plots_folder="plots",
     create_tables=False,
     seeds=[1, 2, 6, 5, 10, 40, 43, 46, 50],
-    runs_per_variational_model=5,
+    runs_per_variational_model=2,
     train_samples=1,
     test_samples=[2, 5, 10, 20, 40, 50],
     init_vnn_from=None,
@@ -984,6 +984,8 @@ def main(
                     "non_own_auc": [],
                     "insiders_non_own_f1": [],
                     "insiders_non_own_auc": [],
+                    "val_f1": [],
+                    "val_auc": [],
                     "seeds": seeds,
                 }
             ]
@@ -998,6 +1000,8 @@ def main(
                         "non_own_auc": [],
                         "insiders_non_own_f1": [],
                         "insiders_non_own_auc": [],
+                        "val_f1": [],
+                        "val_auc": [],
                         "best_samples": [],
                         "seeds": seeds,
                     }
@@ -1394,6 +1398,8 @@ def main(
 
                         single_model_result[i]["f1"].append(stats["f1"][1])
                         single_model_result[i]["auc"].append(stats["auc"])
+                        single_model_result[i]["val_f1"].append(valid_stats["f1"][1])
+                        single_model_result[i]["val_auc"].append(valid_stats["auc"])
 
                         if evaluate_with_dibnn:
                             single_model_result[i]["best_samples"].append(best_samples)

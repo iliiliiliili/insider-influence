@@ -59,20 +59,20 @@ def is_mean_flag(flag):
 
 def transform_model_type_for_plotting(model_type):
     if model_type in ["vnn_gat"]:
-        return "vgat"
+        return "VGAT"
     if model_type in ["vnn_gcn"]:
-        return "vgcn"
+        return "VGCN"
 
     if model_type in ["dropout_gcn"]:
-        return "dropoutgcn"
-
-    if model_type in ["vnn_gat_ivb", "vnn_gat_ivo"]:
-        return "ivgat"
-    if model_type in ["vnn_gcn_ivb", "vnn_gcn_ivo"]:
-        return "ivgcn"
+        return "Dropout-GCN"
 
     if model_type in ["dropout_gat"]:
-        return "dropoutgat"
+        return "Dropout-GAT"
+
+    if model_type in ["vnn_gat_ivb", "vnn_gat_ivo"]:
+        return "IVGAT"
+    if model_type in ["vnn_gcn_ivb", "vnn_gcn_ivo"]:
+        return "IVGCN"
 
     return model_type
 
@@ -90,7 +90,10 @@ class SingleResult:
     batch: int
     f1: float
     f1_std: float
+    val_f1: float
+    val_f1_std: float
     auc: float
+    auc_std: float
     non_own_f1: float
     non_own_auc: float
     insiders_non_own_f1: float
@@ -107,12 +110,20 @@ class Experiment:
     results: List[SingleResult]
     age_days: int
     path: str
-    __best_result: float = None
+    __best_result: SingleResult = None
 
-    def best_result(self):
+    def best_result(self, select_based_on_val_f1):
+
+        if "baselines" in self.flags:
+            print("select_based_on_val_f1 is ignored for baselines")
+            select_based_on_val_f1 = False
 
         if self.__best_result is None:
-            self.__best_result = max([r for r in self.results], key=lambda r: r.f1)
+            self.__best_result = max([r for r in self.results], key=lambda r: r.val_f1 if select_based_on_val_f1 else r.f1)
+            
+        if "baselines" in self.flags:
+            self.__best_result.val_f1 = self.__best_result.f1
+            self.__best_result.val_f1_std = self.__best_result.f1_std
 
         return self.__best_result
 
@@ -220,7 +231,10 @@ def create_mean_results(experiments: List[Experiment]):
             results[0].batch,
             mean([r.f1 for r in results]),
             mean([r.f1_std for r in results]),
+            mean([r.val_f1 for r in results]) if results[0].val_f1 is not None else None,
+            mean([r.val_f1_std for r in results]) if results[0].val_f1 is not None else None,
             mean([r.auc for r in results]),
+            mean([r.auc_std for r in results]),
             mean([r.non_own_f1 for r in results]),
             mean([r.non_own_auc for r in results]),
             mean([r.insiders_non_own_f1 for r in results]),
@@ -267,13 +281,14 @@ def create_mean_results(experiments: List[Experiment]):
     return mean_set
 
 
-def show_inclusion_table(
+def make_inclusion_table(
     experiments: List[Experiment],
     experiments_per_group,
     exclude_model_types=[],
     allow_model_types=None,
     show_empty=True,
     frame_extra_flags=[],
+    select_based_on_val_f1=True
 ):
 
     experiments = experiments + create_mean_results(experiments)
@@ -312,6 +327,8 @@ def show_inclusion_table(
         "network",
         "f1",
         "f1 std",
+        "val f1",
+        "val f1 std",
         "auc",
         "no f1",
         "no auc",
@@ -332,12 +349,24 @@ def show_inclusion_table(
         "Model Type",
         "Network",
         "F1",
+        "val f1",
         "f1 std",
+        "val f1 std",
         "auc",
         "s",
         "ts",
         "bs",
     ]
+
+    best_table_headers = [
+        "Model",
+        "F1",
+        "F1 Std",
+        "AUC",
+        "AUC Std",
+    ]
+    best_table = []
+    best_experiments = []
 
     data_frame = {}
 
@@ -425,7 +454,7 @@ def show_inclusion_table(
 
                     experiments = sorted(
                         experiments,
-                        key=lambda experiment: -experiment.best_result().f1,
+                        key=lambda experiment: -experiment.best_result(select_based_on_val_f1).val_f1 if select_based_on_val_f1 else experiment.best_result(select_based_on_val_f1).f1,
                     )
 
                     groups[horizon][frequency][direction][model_type] = experiments
@@ -476,6 +505,8 @@ def show_inclusion_table(
                                 "...",
                                 "...",
                                 "...",
+                                "...",
+                                "...",
                                 *["..." for _ in extra_flags],
                             ]
                             table.append(line)
@@ -484,7 +515,7 @@ def show_inclusion_table(
 
                         experiments_exist = True
 
-                        best_result = experiment.best_result()
+                        best_result = experiment.best_result(select_based_on_val_f1)
 
                         def flag_to_text(f):
                             if f in value_flags:
@@ -518,7 +549,7 @@ def show_inclusion_table(
                                         direction
                                     ][compare_model_type][0]
                                     if (
-                                        compare_experiment.best_result().f1
+                                        compare_experiment.best_result(select_based_on_val_f1).val_f1 if select_based_on_val_f1 else compare_experiment.best_result(select_based_on_val_f1).f1
                                         > best_result.f1
                                     ):
                                         is_best_in_subset = False
@@ -537,6 +568,8 @@ def show_inclusion_table(
                                 if best_result.f1_std != 0
                                 else ""
                             ),
+                            f"{best_result.val_f1:.3f}",
+                            f"{best_result.val_f1_std:.3f}",
                             f"{best_result.auc:.2f}",
                             f"{best_result.non_own_f1:.2f}",
                             f"{best_result.non_own_auc:.2f}",
@@ -566,6 +599,8 @@ def show_inclusion_table(
                         data_frame["Network"].append(experiment.network_type)
                         data_frame["F1"].append(best_result.f1)
                         data_frame["f1 std"].append(best_result.f1_std)
+                        data_frame["val f1"].append(best_result.val_f1)
+                        data_frame["val f1 std"].append(best_result.val_f1_std)
                         data_frame["auc"].append(best_result.auc)
                         data_frame["s"].append(
                             0 if experiment.samples is None else experiment.samples
@@ -579,6 +614,21 @@ def show_inclusion_table(
                         for f in frame_extra_flags:
                             if f[1] not in base_data_frame_entries:
                                 data_frame[f[1]].append(flag_to_text(f[1]))
+                        
+                        if (i == 0 or model_type == "baselines") and is_mean_flag(horizon) and is_mean_flag(frequency) and is_mean_flag(direction):
+                            best_table.append(
+                                [
+                                    {"gat": "GAT", "gcn": "GCN"}[experiment.network_type] if model_type == "baselines" else transform_model_type_for_plotting(model_type),
+                                    f"{best_result.f1:.3f}",
+                                    (
+                                        f"{best_result.f1_std:.3f}"
+                                    ),
+                                    f"{best_result.auc:.3f}",
+                                    f"{best_result.auc_std:.3f}",
+                                ]
+                            )
+
+                            best_experiments.append(experiment)
 
                     if (not experiments_exist) and show_empty:
 
@@ -587,6 +637,8 @@ def show_inclusion_table(
                             frequency,
                             direction,
                             model_type,
+                            "",
+                            "",
                             "",
                             "",
                             "",
@@ -617,10 +669,41 @@ def show_inclusion_table(
     tab = tabulate(table)
     raw_tab = tabulate(raw_table)
     print(tab)
+    print(tabulate(best_table, best_table_headers))
     with open("inclusion_table.txt", "w") as f:
         print(raw_tab, file=f)
 
+    with open("best_table.txt", "w") as f:
+        print(tabulate(best_table, best_table_headers), file=f)
+
+    with open("best_table.tex", "w") as f:
+        print(tabulate(best_table, best_table_headers, tablefmt="latex"), file=f)
+
     data_frame = DataFrame(data_frame)
+
+    # print(best_experiments)
+    with open("best_experiments.json", "w") as f:
+        json.dump(
+            [
+                {
+                    "path": e.path,
+                    "flags": e.flags,
+                    "horizon": e.flags[0],
+                    "frequency": e.flags[1],
+                    "direction": e.flags[2],
+                    "model_type": e.flags[3],
+                    "network_type": e.network_type,
+                    "samples": e.samples,
+                    "batch": e.batch,
+                    "f1": e.best_result(select_based_on_val_f1).f1,
+                    "val_f1": e.best_result(select_based_on_val_f1).val_f1,
+                    "auc": e.best_result(select_based_on_val_f1).auc,
+                }
+                for e in best_experiments
+            ],
+            f,
+            indent=4,
+        )
 
     return data_frame
 
@@ -780,7 +863,10 @@ def find_experiments(
                     batch=d["batch"] if "batch" in d else -1,
                     f1=d["f1"],
                     f1_std=d["f1_std"] if "f1_std" in d else 0,
+                    val_f1 = d["val_f1"] if "val_f1" in d else None,
+                    val_f1_std = d["val_f1_std"] if "val_f1_std" in d else None,
                     auc=d["auc"],
+                    auc_std=d["auc_std"] if "auc_std" in d else 0,
                     non_own_f1=d["non_own_f1"],
                     non_own_auc=d["non_own_auc"],
                     insiders_non_own_f1=d["insiders_non_own_f1"],
@@ -836,6 +922,7 @@ def main(
         "dropoutgcn",
         "baselines",
     ],
+    select_based_on_val_f1 = True,
 ):
 
     if not isinstance(exclude_model_types, list):
@@ -846,12 +933,13 @@ def main(
 
     all_experiments = find_experiments(root, root)
 
-    data_frame = show_inclusion_table(
+    data_frame = make_inclusion_table(
         all_experiments,
         exclude_model_types=exclude_model_types,
         allow_model_types=allow_model_types,
         experiments_per_group=experiments_per_group,
         frame_extra_flags=plots_extra_flags,
+        select_based_on_val_f1=select_based_on_val_f1
     )
 
     for t in exclude_model_types:
@@ -893,7 +981,7 @@ def uncertainty_aware(
 
     all_experiments = ua_experiments + vnn_experiments
 
-    data_frame = show_inclusion_table(
+    data_frame = make_inclusion_table(
         all_experiments,
         exclude_model_types=exlcude_model_types,
         experiments_per_group=experiments_per_group,

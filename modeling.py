@@ -365,12 +365,12 @@ def base_experiment_all(
         for samples in [2, 7]:
             for activation_mode in ["mean"]:
                 for use_batch_norm in [False]:
-                    for global_std_mode in ["multiply"]:
+                    for global_std_mode in ["none", "multiply"]:
 
                         if global_std_mode == "none":
                             gstds = [0]
                         else:
-                            gstds = [0, 0.01, 0.05, 0.1, 0.2]
+                            gstds = [0.05, 0.2]
 
                         for gstd in gstds:
 
@@ -400,8 +400,8 @@ def base_experiment_all(
         for samples in [2, 7]:
             for activation_mode in ["mean"]:
                 for use_batch_norm in [False]:
-                    for global_std_mode in ["multiply"]:
-                        for init_from in ["baselines", "original"]:
+                    for global_std_mode in ["none", "multiply"]:
+                        for init_from in ["baselines"]:
                             for init_vnn_name, init_vnn_weights in [
                                 ("usual", "usual"),
                                 ("f0x3", "fill:stds:0.001:0.001"),
@@ -415,7 +415,7 @@ def base_experiment_all(
                                 if global_std_mode == "none":
                                     gstds = [0]
                                 else:
-                                    gstds = [0, 0.01, 0.05, 0.1, 0.2]
+                                    gstds = [0.05, 0.2]
 
                                 for gstd in gstds:
 
@@ -1039,26 +1039,121 @@ def test_for_relaibility_diagrams(
 
     experiments = []
 
-    for net in ["uaeavgat", "ualaivgat"]:
-        for samples in [7, 2]:
-            for activation_mode in ["mean"]:
-                for use_batch_norm in [False]:
-                    for global_std_mode in ["multiply"]:
+    # for net in ["uaeavgat", "ualaivgat"]:
+    #     for samples in [7, 2]:
+    #         for activation_mode in ["mean"]:
+    #             for use_batch_norm in [False]:
+    #                 for global_std_mode in ["multiply"]:
+    #                     if global_std_mode == "none":
+    #                         gstds = [0]
+    #                     else:
+    #                         gstds = [0.1]
+
+    #                     for gstd in gstds:
+
+    #                         vgat_name = (
+    #                             f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
+    #                             + ("" if global_std_mode == "none" else f"/gstd_{gstd}")
+    #                         )
+
+    #                         experiments.append(
+    #                             (
+    #                                 ["train", vgat_name, net, f"vnn_{model_base_name(net)}"],
+    #                                 {
+    #                                     "train_samples": samples,
+    #                                     "batch_norm_mode": activation_mode,
+    #                                     "activation_mode": activation_mode,
+    #                                     "use_batch_norm": use_batch_norm,
+    #                                     "global_std_mode": global_std_mode,
+    #                                     "GLOBAL_STD": gstd,
+    #                                 },
+    #                             )
+    #                         )
+
+
+    #                         for training_method in [
+    #                             "variational",
+    #                             "uncertainty_aware",
+    #                         ]:
+    #                             for attention_filter_limit in [
+    #                                 # 0.1,
+    #                                 0.5,
+    #                                 # 0.7,
+    #                                 # 1,
+    #                                 # 10,
+    #                             ]:
+    #                                 for attention_combination_frequency in [1,2,3]:
+
+    #                                     name = (
+    #                                         f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
+    #                                         + (
+    #                                             ""
+    #                                             if global_std_mode == "none"
+    #                                             else f"/gstd_{gstd}"
+    #                                         )
+    #                                         + f"/train_{training_method}/afl_{attention_filter_limit}_acf_{attention_combination_frequency}"
+    #                                     )
+
+    #                                     experiments.append(
+    #                                         (
+    #                                             [
+    #                                                 "test",
+    #                                                 name,
+    #                                                 net,
+    #                                                 f"vnn_{model_base_name(net)}",
+    #                                             ],
+    #                                             {
+    #                                                 "train_samples": samples,
+    #                                                 "batch_norm_mode": activation_mode,
+    #                                                 "activation_mode": activation_mode,
+    #                                                 "use_batch_norm": use_batch_norm,
+    #                                                 "global_std_mode": global_std_mode,
+    #                                                 "GLOBAL_STD": gstd,
+    #                                                 "training_method": training_method,
+    #                                                 "attention_filter_limit": attention_filter_limit,
+    #                                                 "attention_combination_frequency": attention_combination_frequency,
+    #                                                 "results_folder": results_folder,
+    #                                                 "plots_folder": plots_folder,
+    #                                                 "test_with_uncertainty": True,
+    #                                                 "draw_uncertainty_graphs": False,
+    #                                                 "seeds": [1],
+    #                                                 "runs_per_variational_model": 1,
+    #                                             },
+    #                                         )
+    #                                     )
+
+    for net, samples, init_vnn_name, init_vnn_weights in [
+        ("vgcn", 2, "xufb0x2", "xavier_uniform_fb:stds:0.01:0.001"),
+        ("vgat", 2, "xnfb0x2", "xavier_normal_fb:stds:0.01:0.001"),
+    ]:
+        for activation_mode in ["mean"]:
+            for use_batch_norm in [False]:
+                for global_std_mode in ["multiply"]:
+                    for init_from in ["baselines"]:
                         if global_std_mode == "none":
                             gstds = [0]
                         else:
-                            gstds = [0.1]
+                            gstds = [0.2]
 
                         for gstd in gstds:
 
-                            vgat_name = (
+                            name = (
                                 f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
-                                + ("" if global_std_mode == "none" else f"/gstd_{gstd}")
+                                + (
+                                    ""
+                                    if global_std_mode == "none"
+                                    else f"/gstd_{gstd}"
+                                )
                             )
 
                             experiments.append(
                                 (
-                                    ["train", vgat_name, net, f"vnn_{model_base_name(net)}"],
+                                    [
+                                        "test",
+                                        name,
+                                        net,
+                                        f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
+                                    ],
                                     {
                                         "train_samples": samples,
                                         "batch_norm_mode": activation_mode,
@@ -1066,117 +1161,21 @@ def test_for_relaibility_diagrams(
                                         "use_batch_norm": use_batch_norm,
                                         "global_std_mode": global_std_mode,
                                         "GLOBAL_STD": gstd,
+                                        "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
+                                        "INIT_WEIGHTS": init_vnn_weights,
+                                        "init_vnn_from_original": init_from == "original",
+                                        "results_folder": results_folder,
+                                        "plots_folder": plots_folder,
+                                        "test_with_uncertainty": True,
+                                        "draw_uncertainty_graphs": False,
+                                        "seeds": [1],
+                                        "runs_per_variational_model": 1,
                                     },
                                 )
                             )
 
-
-                            for training_method in [
-                                "variational",
-                                "uncertainty_aware",
-                            ]:
-                                for attention_filter_limit in [
-                                    # 0.1,
-                                    0.5,
-                                    # 0.7,
-                                    # 1,
-                                    # 10,
-                                ]:
-                                    for attention_combination_frequency in [1,2,3]:
-
-                                        name = (
-                                            f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
-                                            + (
-                                                ""
-                                                if global_std_mode == "none"
-                                                else f"/gstd_{gstd}"
-                                            )
-                                            + f"/train_{training_method}/afl_{attention_filter_limit}_acf_{attention_combination_frequency}"
-                                        )
-
-                                        experiments.append(
-                                            (
-                                                [
-                                                    "test",
-                                                    name,
-                                                    net,
-                                                    f"vnn_{model_base_name(net)}",
-                                                ],
-                                                {
-                                                    "train_samples": samples,
-                                                    "batch_norm_mode": activation_mode,
-                                                    "activation_mode": activation_mode,
-                                                    "use_batch_norm": use_batch_norm,
-                                                    "global_std_mode": global_std_mode,
-                                                    "GLOBAL_STD": gstd,
-                                                    "training_method": training_method,
-                                                    "attention_filter_limit": attention_filter_limit,
-                                                    "attention_combination_frequency": attention_combination_frequency,
-                                                    "results_folder": results_folder,
-                                                    "plots_folder": plots_folder,
-                                                    "test_with_uncertainty": True,
-                                                    "draw_uncertainty_graphs": False,
-                                                    "seeds": [1],
-                                                    "runs_per_variational_model": 1,
-                                                },
-                                            )
-                                        )
-
     for net in ["vgat", "vgcn"]:
-        for samples in [7, 2]:
-            for activation_mode in ["mean"]:
-                for use_batch_norm in [False]:
-                    for global_std_mode in ["multiply"]:
-                        for init_from in ["baselines"]:
-                            for init_vnn_name, init_vnn_weights in [
-                                ("xnfb0x2", "xavier_normal_fb:stds:0.01:0.001"),
-                            ]:
-                                if global_std_mode == "none":
-                                    gstds = [0]
-                                else:
-                                    gstds = [0.05, 0.1, 0.5, 1]
-
-                                for gstd in gstds:
-
-                                    name = (
-                                        f"activation_{activation_mode}{'/bn' if use_batch_norm else ''}/gstd-mode_{global_std_mode}"
-                                        + (
-                                            ""
-                                            if global_std_mode == "none"
-                                            else f"/gstd_{gstd}"
-                                        )
-                                    )
-
-                                    experiments.append(
-                                        (
-                                            [
-                                                "test",
-                                                name,
-                                                net,
-                                                f"vnn_{model_base_name(net)}/iv_{init_from}_{init_vnn_name}",
-                                            ],
-                                            {
-                                                "train_samples": samples,
-                                                "batch_norm_mode": activation_mode,
-                                                "activation_mode": activation_mode,
-                                                "use_batch_norm": use_batch_norm,
-                                                "global_std_mode": global_std_mode,
-                                                "GLOBAL_STD": gstd,
-                                                "init_vnn_from": f"models/{init_from}/{model_base_name(net)}",
-                                                "INIT_WEIGHTS": init_vnn_weights,
-                                                "init_vnn_from_original": init_from == "original",
-                                                "results_folder": results_folder,
-                                                "plots_folder": plots_folder,
-                                                "test_with_uncertainty": True,
-                                                "draw_uncertainty_graphs": False,
-                                                "seeds": [1],
-                                                "runs_per_variational_model": 1,
-                                            },
-                                        )
-                                    )
-
-    for net in ["vgat", "vgcn"]:
-        for samples in [7, 2]:
+        for samples in [7]:
             for activation_mode in ["mean"]:
                 for use_batch_norm in [False]:
                     for global_std_mode in ["multiply"]:
@@ -1184,7 +1183,7 @@ def test_for_relaibility_diagrams(
                         if global_std_mode == "none":
                             gstds = [0]
                         else:
-                            gstds = [0, 0.1, 0.2, 0.5, 1, 2, 5]
+                            gstds = [0.2]
 
                         for gstd in gstds:
 
@@ -1212,6 +1211,31 @@ def test_for_relaibility_diagrams(
                                     },
                                 )
                             )
+
+
+    for net, samples in [("dropoutgcn", 1), ("dropoutgat", 10)]:
+        for dropout_probability in [0.05]:
+            for dropout_type in ["standard"]:
+                name = (
+                    f"dropout-probability_{dropout_probability}/dropout-type_{dropout_type}"
+                )
+
+                experiments.append(
+                    (
+                        ["test", name, net, f"dropout_{model_base_name(net)}"],
+                        {
+                            "train_samples": samples,
+                            "dropout_probability": dropout_probability,
+                            "results_folder": results_folder,
+                            "plots_folder": plots_folder,
+                            "dropout_type": dropout_type,
+                            "seeds": [1],
+                            "test_with_uncertainty": True,
+                            "draw_uncertainty_graphs": False,
+                        },
+                    )
+                )
+
 
     for net in ["gcn", "gat"]:
         experiments.append(
