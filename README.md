@@ -1,4 +1,5 @@
-# Implementation of [Variational Graph Convolutional Neural Networks](https://arxiv.org/abs/2507.01699) for financial data analysis.
+<!-- # Implementation of [Variational Graph Convolutional Neural Networks](https://arxiv.org/abs/2507.01699) for financial data analysis. -->
+# Implementation of Variational Graph Convolutional Neural Networks for financial data analysis.
 
 ## Installation
 
